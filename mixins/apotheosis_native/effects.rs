@@ -1,4 +1,4 @@
-// Apotheosis for Horizon: the effects of affixes and gems beyond attributes (slice 0.6).
+// Apotheosis for Horizon: the effects of affixes and gems beyond the game's attributes (slices 0.6 and 0.7).
 //
 // Injected into horizon-world as `pub mod apotheosis_effects`. Given an item (its id and `custom_data`), it lists
 // what its affixes and socketed gems do: mob effects on a hit, an arrow, a hurt or a broken block, damage
@@ -266,6 +266,158 @@ pub fn radial_area(pos: [i32; 3], yaw: f32, pitch: f32, width: i32, x_off: i32, 
     out
 }
 
+// ---- Apothic attributes (slice 0.7) ----------------------------------------------------
+
+/// The Apothic Attributes this port carries out, with the base a player has (Apothic's own, but crit chance:
+/// 0 rather than 5%, so a player without such gear hits as in the vanilla game).
+pub const APOTHIC: &[(&str, f64)] = &[
+    ("apothic_attributes:crit_chance", 0.0),
+    ("apothic_attributes:crit_damage", 1.5),
+    ("apothic_attributes:life_steal", 0.0),
+    ("apothic_attributes:current_hp_damage", 0.0),
+    ("apothic_attributes:fire_damage", 0.0),
+    ("apothic_attributes:cold_damage", 0.0),
+    ("apothic_attributes:armor_pierce", 0.0),
+    ("apothic_attributes:armor_shred", 0.0),
+    ("apothic_attributes:dodge_chance", 0.0),
+    ("apothic_attributes:healing_received", 1.0),
+    ("apothic_attributes:experience_gained", 1.0),
+    ("apothic_attributes:arrow_damage", 1.0),
+    ("apothic_attributes:projectile_damage", 1.0),
+    ("apothic_attributes:draw_speed", 1.0),
+];
+
+/// Whether this port carries out the Apothic attribute `attribute`.
+pub fn apothic(attribute: &str) -> bool {
+    APOTHIC.iter().any(|(a, _)| *a == attribute)
+}
+
+/// Whether an attribute's value reads as a share (shown as a percentage), not a number of points.
+pub fn apothic_share(attribute: &str) -> bool {
+    !matches!(
+        attribute,
+        "apothic_attributes:fire_damage" | "apothic_attributes:cold_damage" | "apothic_attributes:armor_pierce"
+    )
+}
+
+/// How a modifier on an Apothic attribute reads: its amount ("+25%", "+4") and its name's lang key.
+pub fn apothic_text(attribute: &str, amount: f64, operation: &str) -> (String, String) {
+    let path = attribute.split_once(':').map_or(attribute, |(_, p)| p);
+    let number = |v: f64| {
+        let r = (v * 100.0).round() / 100.0;
+        if r.fract() == 0.0 { format!("{}", r as i64) } else { format!("{r}") }
+    };
+    let sign = if amount < 0.0 { "-" } else { "+" };
+    let shown = if operation != "add_value" || apothic_share(attribute) {
+        format!("{sign}{}%", number(amount.abs() * 100.0))
+    } else {
+        format!("{sign}{}", number(amount.abs()))
+    };
+    (shown, format!("apotheosis.attribute.{path}"))
+}
+
+static STATS: std::sync::RwLock<Vec<(&'static str, f64)>> = std::sync::RwLock::new(Vec::new());
+static PLAYER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(i32::MIN);
+
+/// The value of each Apothic attribute given `modifiers` (attribute, amount, operation), as the game works an
+/// attribute out: base plus the added values, then the base share, then each total share.
+pub fn stat_values(modifiers: &[(String, f64, String)]) -> Vec<(&'static str, f64)> {
+    APOTHIC
+        .iter()
+        .map(|&(attribute, base)| {
+            let (mut add, mut share, mut total) = (0.0, 0.0, 1.0);
+            for (_, amount, operation) in modifiers.iter().filter(|m| m.0 == attribute) {
+                match operation.as_str() {
+                    "add_multiplied_base" => share += amount,
+                    "add_multiplied_total" => total *= 1.0 + amount,
+                    _ => add += amount,
+                }
+            }
+            let value = base + add;
+            (attribute, (value + value * share) * total)
+        })
+        .collect()
+}
+
+/// Records the player's (entity `player`) Apothic attributes from the modifiers their equipment gives.
+pub fn set_stats(player: i32, modifiers: &[(String, f64, String)]) {
+    if let Ok(mut s) = STATS.write() {
+        *s = stat_values(modifiers);
+    }
+    PLAYER.store(player, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The player's value of Apothic attribute `attribute` (its base before the equipment is known).
+pub fn stat(attribute: &str) -> f64 {
+    let base = APOTHIC.iter().find(|(a, _)| *a == attribute).map_or(0.0, |(_, b)| *b);
+    STATS.read().ok().and_then(|s| s.iter().find(|(a, _)| *a == attribute).map(|(_, v)| *v)).unwrap_or(base)
+}
+
+/// The player's entity id, as the damage hooks name it (none before the equipment is known).
+pub fn player() -> Option<i32> {
+    let id = PLAYER.load(std::sync::atomic::Ordering::Relaxed);
+    (id != i32::MIN).then_some(id)
+}
+
+/// A number in [0, 1) for the combat rolls: SplitMix64 over a shared counter, seeded by the clock.
+pub fn roll() -> f64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STATE: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    let mut z = STATE.fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed).wrapping_add(nanos);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// A block's experience times the player's experience gained, the fraction rounded by chance.
+pub fn scaled_experience(experience: u32) -> u32 {
+    let scaled = f64::from(experience) * stat("apothic_attributes:experience_gained");
+    let whole = scaled.floor();
+    (whole + f64::from(u8::from(roll() < scaled - whole))) as u32
+}
+
+/// Apothic's critical strike: while a roll falls under the crit chance, the damage is multiplied by the crit
+/// damage, each further crit 15% weaker and the chance one less. `roll` gives numbers in [0, 1).
+pub fn crit_multiplier(chance: f64, damage: f64, mut roll: impl FnMut() -> f64) -> f64 {
+    let (mut chance, mut damage, mut mult) = (chance, damage, 1.0);
+    while damage > 1.0 && roll() < chance {
+        chance -= 1.0;
+        mult *= damage;
+        damage *= 0.85;
+    }
+    mult
+}
+
+/// `CombatRules.getDamageAfterAbsorb`'s share of `damage` that armour `armor` with `toughness` lets through.
+pub fn armor_factor(damage: f64, armor: f64, toughness: f64) -> f64 {
+    let f = 2.0 + toughness / 4.0;
+    let a = (armor - damage / f).clamp(armor * 0.2, 20.0);
+    1.0 - a / 25.0
+}
+
+/// The damage to deal before armour so that, with `armor` shredded by `shred` (a share) and pierced by `pierce`
+/// points, as much gets through as through the weakened armour.
+pub fn pierced(damage: f64, armor: f64, toughness: f64, shred: f64, pierce: f64) -> f64 {
+    if armor <= 0.0 || (shred <= 0.0 && pierce <= 0.0) {
+        return damage;
+    }
+    let weakened = (armor * (1.0 - shred.clamp(0.0, 1.0)) - pierce).max(0.0);
+    let target = damage * armor_factor(damage, weakened, toughness);
+    // What gets through grows with the damage: find the damage that lets `target` through.
+    let through = |d: f64| d * armor_factor(d, armor, toughness);
+    let (mut low, mut high) = (damage, damage * 6.0);
+    if through(high) < target {
+        return high;
+    }
+    for _ in 0..40 {
+        let mid = (low + high) / 2.0;
+        if through(mid) < target { low = mid } else { high = mid }
+    }
+    high
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,4 +470,42 @@ mod tests {
         assert!(damage_kinds("minecraft:fall").contains(&"fall"));
         assert!(damage_kinds("minecraft:magic").contains(&"magic"));
     }
+    #[test]
+    fn apothic_stats() {
+        let mods = vec![
+            ("apothic_attributes:crit_chance".to_owned(), 0.3, "add_value".to_owned()),
+            ("apothic_attributes:crit_damage".to_owned(), 0.4, "add_value".to_owned()),
+            ("apothic_attributes:draw_speed".to_owned(), 0.5, "add_multiplied_total".to_owned()),
+            ("apothic_attributes:healing_received".to_owned(), 0.2, "add_multiplied_base".to_owned()),
+            ("minecraft:armor".to_owned(), 3.0, "add_value".to_owned()),
+        ];
+        let v = stat_values(&mods);
+        let get = |a: &str| v.iter().find(|(x, _)| *x == a).unwrap().1;
+        assert!((get("apothic_attributes:crit_chance") - 0.3).abs() < 1e-9);
+        assert!((get("apothic_attributes:crit_damage") - 1.9).abs() < 1e-9);
+        assert!((get("apothic_attributes:draw_speed") - 1.5).abs() < 1e-9);
+        assert!((get("apothic_attributes:healing_received") - 1.2).abs() < 1e-9);
+        assert_eq!(get("apothic_attributes:life_steal"), 0.0);
+    }
+
+    #[test]
+    fn rolls_spread() {
+        let rolls: Vec<f64> = (0..1000).map(|_| roll()).collect();
+        assert!(rolls.iter().all(|r| (0.0..1.0).contains(r)));
+        let low = rolls.iter().filter(|r| **r < 0.15).count();
+        assert!((100..200).contains(&low), "{low}");
+    }
+
+    #[test]
+    fn crits_and_armour() {
+        assert_eq!(crit_multiplier(0.0, 1.5, || 0.0), 1.0);
+        assert!((crit_multiplier(0.5, 2.0, || 0.1) - 2.0).abs() < 1e-9, "one crit: the chance drops below 0");
+        assert!((crit_multiplier(1.5, 2.0, || 0.1) - 2.0 * 1.7).abs() < 1e-9, "an overcrit is 15% weaker");
+        assert_eq!(pierced(10.0, 0.0, 0.0, 0.5, 5.0), 10.0);
+        let through = |d: f64, a: f64| d * armor_factor(d, a, 0.0);
+        let d = pierced(10.0, 10.0, 0.0, 0.0, 5.0);
+        assert!((through(d, 10.0) - through(10.0, 5.0)).abs() < 1e-6, "{d}");
+        assert!(pierced(10.0, 10.0, 0.0, 0.5, 0.0) > 10.0);
+    }
+
 }

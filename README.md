@@ -90,12 +90,24 @@ Affixes and gem bonuses that do more than add an attribute, from Apotheosis' dat
 - **Telepathic**: what the item breaks or kills goes straight into the inventory.
 - **Festive**: now and then a kill drops its loot more than once.
 
+## 0.7: Apothic attributes
+
+Affixes and gem bonuses on the attributes Apotheosis takes from Apothic Attributes now roll and work, carried out
+by this mod (the tooltip lists them in blue):
+
+- **Critical chance and damage**: a hit's chance to deal more, rolled again past 100% (each further crit weaker).
+  A player without such gear never crits this way (Apothic gives everyone 5%; this port keeps the vanilla game).
+- **Life steal**: melee damage dealt heals you by a share.
+- **Damage from the target's health**, **fire damage** and **cold damage**: more melee damage, scaled by the swing.
+- **Armour pierce** and **shred**: melee hits go through some of the target's armour.
+- **Dodge chance**: a share of the hits from other creatures miss you.
+- **Healing received**, **experience gained** (from blocks), **arrow and projectile damage** and **draw speed**.
+
 ## Not yet
 
-- Affixes and gem bonuses on attributes Horizon doesn't have: crit chance, life steal, fire and cold damage,
-  armour pierce/shred, draw speed and the other Apothic Attributes ones. Gems whose bonuses are all of these
-  (Earth, Ender Surge, Inferno, Mageslayer) don't drop yet; a gem goes only into an item it has a working bonus
-  for.
+- The Apothic attributes still missing: overheal, protection pierce and shred, arrow velocity, cooldown
+  reduction, elytra and creative flight, and those Apotheosis gives only to bosses. Their affixes don't roll, and
+  a gem goes only into an item it has a working bonus for.
 - The effects that need the Apothic attributes or effects (bleeding, sundering, knowledge...), shield affixes,
   durability affixes, the spectral and magical arrows, and Psychic, Retreating, Catalyzing, Omnetic,
   Stoneforming and Enlightened.

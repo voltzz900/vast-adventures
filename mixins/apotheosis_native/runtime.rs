@@ -15,7 +15,7 @@ use std::sync::{OnceLock, RwLock};
 
 pub const ID: &str = "apotheosis_native";
 pub const NAME: &str = "Apotheosis";
-pub const VERSION: &str = "0.6.0";
+pub const VERSION: &str = "0.7.0";
 pub const DESCRIPTION: &str = "Rarities, affixes, sockets, gems, bosses and elites, as Apotheosis rolls them.";
 
 // ---- world tier ---------------------------------------------------------------
@@ -216,7 +216,9 @@ pub fn affix_named(id: &str) -> Option<&'static Affix> {
 /// not in Horizon), or a type whose effect is ported.
 fn supported(affix: &Affix) -> bool {
     match affix.typ.as_str() {
-        "apotheosis:attribute" => affix.attribute.starts_with("minecraft:"),
+        "apotheosis:attribute" => {
+            affix.attribute.starts_with("minecraft:") || crate::apotheosis_effects::apothic(&affix.attribute)
+        }
         typ => crate::apotheosis_effects::ported(typ, &affix.raw),
     }
 }
@@ -495,6 +497,18 @@ const NAMES: &[(&str, &str, &str)] = &[
     ("breaker/enchantment/prosperous", "Prosperous", "of Plenty"),
     ("breaker/effect/radial", "Sweeping", "of the Quarry"),
     ("breaker/ability/supermassive", "Supermassive", "of the Mountain"),
+    ("armor/attribute/spiritual", "Mending", "of Recovery"),
+    ("breaker/attribute/experienced", "Learned", "of Insight"),
+    ("melee/attribute/giant_slaying", "Toppling", "of the Colossus"),
+    ("melee/attribute/glacial", "Frostbitten", "of Winter"),
+    ("melee/attribute/infernal", "Scorching", "of the Pyre"),
+    ("melee/attribute/intricate", "Precise", "of Precision"),
+    ("melee/attribute/lacerating", "Rending", "of Wounds"),
+    ("melee/attribute/piercing", "Puncturing", "of the Needle"),
+    ("melee/attribute/vampiric", "Bloodthirsty", "of the Leech"),
+    ("ranged/attribute/agile", "Quickdraw", "of the Quiver"),
+    ("ranged/attribute/elven", "Keen", "of the Hunt"),
+    ("weapon/attribute/shredding", "Shattering", "of Splinters"),
     ("generic/telepathic", "Telepathic", "of the Mind"),
     ("melee/cleaving", "Cleaving", "of the Cleaver"),
     ("melee/executing", "Executing", "of the Headsman"),

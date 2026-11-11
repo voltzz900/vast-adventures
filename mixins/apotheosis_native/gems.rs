@@ -105,7 +105,7 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 
 fn modifier(m: &Value) -> Option<Modifier> {
     let attribute = m["attribute"].as_str()?;
-    attribute.starts_with("minecraft:").then(|| Modifier {
+    (attribute.starts_with("minecraft:") || crate::apotheosis_effects::apothic(attribute)).then(|| Modifier {
         attribute: attribute.to_owned(),
         operation: m["operation"].as_str().unwrap_or("add_value").to_owned(),
         values: m["values"].as_object().cloned().unwrap_or_default(),
@@ -278,6 +278,12 @@ fn bonus_effect(bonus: &Bonus, purity: usize) -> Vec<Value> {
         let Some(v) = m.values.get(PURITIES[purity]).and_then(Value::as_f64) else { continue };
         if i > 0 {
             parts.push(json!({"text": " / "}));
+        }
+        if crate::apotheosis_effects::apothic(&m.attribute) {
+            let (amount, key) = crate::apotheosis_effects::apothic_text(&m.attribute, v, &m.operation);
+            parts.push(json!({"text": format!("{amount} ")}));
+            parts.push(json!({"translate": key}));
+            continue;
         }
         let amount = if m.operation == "add_value" { format!("+{} ", number(v)) } else { format!("+{}% ", number(v * 100.0)) };
         let path = m.attribute.strip_prefix("minecraft:").unwrap_or(&m.attribute);

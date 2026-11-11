@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.6.0"
+version = "0.7.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the
@@ -252,10 +252,12 @@ hook_version = 1
 kind = "HEAD"
 helper = "incoming.rs"
 bindings = [
+  { name = "entity", ty = "i32", value = "entity" },
   { name = "kind", ty = "&str", value = "kind" },
   { name = "damage_type", ty = "&str", value = "damage_type" },
   { name = "causing", ty = "i32", value = "causing" },
   { name = "amount", ty = "&mut f32", value = "&mut *amount" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
 
 [[injection]]
@@ -337,4 +339,55 @@ bindings = [
   { name = "entity", ty = "i32", value = "entity" },
   { name = "weapon", ty = "Option<&ItemStack>", value = "weapon" },
   { name = "amount", ty = "&mut f32", value = "&mut *amount" },
+]
+
+# Apothic attributes (0.7): the swing's strength, life steal and overheal, healing received, experience gained
+# and draw speed.
+[[injection]]
+id = "critical-hit"
+hook = "critical_hit"
+hook_version = 1
+kind = "HEAD"
+helper = "critical_hit.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+[[injection]]
+id = "damage-post"
+target = "horizon_client::game::native_hooks::Game<'_>::native_living_damage_post"
+kind = "HEAD"
+helper = "damage_post.rs"
+bindings = [
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "damage_type", ty = "&str", value = "damage_type" },
+  { name = "amount", ty = "f32", value = "amount" },
+]
+
+[[injection]]
+id = "living-heal"
+hook = "living_heal"
+hook_version = 1
+kind = "HEAD"
+helper = "living_heal.rs"
+bindings = [
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "amount", ty = "&mut f32", value = "&mut *amount" },
+]
+
+[[injection]]
+id = "block-exp"
+hook = "block_exp"
+hook_version = 1
+kind = "HEAD"
+helper = "block_exp.rs"
+bindings = [{ name = "experience", ty = "&mut u32", value = "&mut *experience" }]
+
+[[injection]]
+id = "arrow-loose"
+hook = "arrow_loose"
+hook_version = 1
+kind = "HEAD"
+helper = "arrow_loose.rs"
+bindings = [
+  { name = "stack", ty = "&ItemStack", value = "stack" },
+  { name = "charge", ty = "&mut i32", value = "&mut *charge" },
 ]

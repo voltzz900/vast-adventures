@@ -40,10 +40,15 @@ pub(super) fn apply_equipment(game: &mut super::Game<'_>) {
     equipped.push((game.offhand.clone(), "offhand"));
     let Some(player) = game.player.as_mut() else { return };
     let mut added = false;
+    let mut apothic = Vec::new();
     for (stack, slot) in equipped {
         let Some(stack) = stack else { continue };
         for (attribute, id, amount, operation, group) in own_modifiers(&stack) {
             if !super::equipment_modifier_applies(&group, slot) {
+                continue;
+            }
+            if fx::apothic(&attribute) {
+                apothic.push((attribute, amount, operation));
                 continue;
             }
             if player.set_modifier_unclamped(&attribute, &id, amount, &operation, true).is_ok() {
@@ -60,12 +65,27 @@ pub(super) fn apply_equipment(game: &mut super::Game<'_>) {
     if added {
         let _ = player.clamp_health_to_max();
     }
+    fx::set_stats(player.entity_id as i32, &apothic);
+    let uuid = game.native_acting_id();
+    if let Ok(mut u) = PLAYER_UUID.lock() {
+        *u = Some(uuid);
+    }
 }
 
 /// The tooltip's lines for this mod's modifiers, as the item kind's are drawn, without their slot headers.
 pub(super) fn tooltip(stack: &ItemStack, lines: &mut Vec<(horizon_client::text::Text, u32)>) {
     effect_lines(stack, lines);
-    let own = own_modifiers(stack);
+    let (apothic, own): (Vec<_>, Vec<_>) = own_modifiers(stack).into_iter().partition(|m| fx::apothic(&m.0));
+    own_lines(&own, lines);
+    for (attribute, _, amount, operation, _) in &apothic {
+        let (shown, key) = fx::apothic_text(attribute, *amount, operation);
+        let name = horizon_client::lang::get(&key);
+        lines.push((horizon_client::text::Text::legacy(&format!("§9{shown} {name}")), u32::MAX));
+    }
+}
+
+/// The game's attributes among this mod's modifiers, as the item kind's are drawn, without their slot headers.
+fn own_lines(own: &[(String, String, f64, String, String)], lines: &mut Vec<(horizon_client::text::Text, u32)>) {
     if own.is_empty() {
         return;
     }
@@ -77,7 +97,7 @@ pub(super) fn tooltip(stack: &ItemStack, lines: &mut Vec<(horizon_client::text::
         .iter()
         .map(|g| translate(&format!("item.modifiers.{g}")).unwrap_or_else(|| format!("item.modifiers.{g}")))
         .collect();
-    for (line, color) in horizon_client::item_tooltip::attribute_lines(&own, None, &translate) {
+    for (line, color) in horizon_client::item_tooltip::attribute_lines(own, None, &translate) {
         if line.is_empty() || headers.contains(&line) {
             continue;
         }
@@ -397,12 +417,15 @@ pub(super) fn anvil_used(game: &mut super::Game<'_>, pos: [i32; 3]) {
 use horizon_world::apotheosis_effects::{self as fx, Effect, Target};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 /// The worn armour's effects (damage reduction, effects when hurt), worked out with the equipment.
 static WORN: Mutex<Vec<Effect>> = Mutex::new(Vec::new());
 /// Effects waiting for the next server tick: they come from hooks that can't reach the game.
 static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+/// The mobs the player's arrows are hitting this tick (the damage that follows names no player).
+static ARROW_HITS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 /// When each effect last fired, for its cooldown.
 static COOLDOWNS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
 
@@ -411,6 +434,7 @@ enum Pending {
     OnMob { id: u32, effect: String, amplifier: i32, duration: i32 },
     Hurt { id: u32, amount: f32, damage_type: &'static str },
     Bolt { at: [f64; 3] },
+    Heal { amount: f32 },
 }
 
 /// A stack's effects, from its `custom_data`.
@@ -433,7 +457,7 @@ fn ready(source: &str, target: Target, cooldown: i32) -> bool {
 }
 
 fn effect_on_player(game: &mut super::Game<'_>, effect: &str, amplifier: i32, duration: i32) {
-    let player = game.native_acting_id();
+    let player = player_uuid(game);
     let effect = horizon_client::mod_api::NativeEffect {
         id: effect.to_owned(),
         amplifier: amplifier.clamp(0, 255) as u8,
@@ -456,7 +480,7 @@ fn effect_on_mob(game: &mut super::Game<'_>, id: u32, effect: &str, amplifier: i
         ]))]),
     )]);
     let applied = game.native_entity_merge_nbt(entity, nbt);
-    log::info!("apotheosis: {effect} on mob {id}: {applied}");
+    log::debug!("Apotheosis: {effect} on mob {id}: {applied}");
 }
 
 fn queue_on_mob(id: u32, effect: &str, amplifier: i32, duration: i32) {
@@ -493,15 +517,15 @@ pub(super) fn remember_worn(game: &super::Game<'_>) {
 /// At the head of `native_living_incoming_damage_v2`, the player's melee hit on mob `entity`: the weapon's
 /// effects. Executing changes the damage; the rest wait for the next tick, as the game is mid-hurt here.
 pub(super) fn melee(game: &super::Game<'_>, entity: i32, weapon: Option<&ItemStack>, damage: &mut f32) {
+    let Some(mob) = game.mobs.iter().find(|m| i64::from(m.id) == i64::from(entity) && !m.removed) else { return };
+    apothic_melee(mob, damage);
     let effects = stack_effects(weapon);
     if effects.is_empty() {
         return;
     }
-    let Some(mob) = game.mobs.iter().find(|m| i64::from(m.id) == i64::from(entity) && !m.removed) else { return };
     let id = mob.id;
     let victim = [mob.position.x, mob.position.y, mob.position.z];
     let mut amount = *damage;
-    let mut rng = horizon_world::apotheosis::Rng::new(u64::from(id) ^ now_nanos() ^ now_secs().rotate_left(13));
     let mut queued = Vec::new();
     for effect in &effects {
         match effect {
@@ -524,7 +548,7 @@ pub(super) fn melee(game: &super::Game<'_>, entity: i32, weapon: Option<&ItemSta
                 queued.push(Pending::Bolt { at: victim });
             }
             Effect::Cleaving { chance, targets } => {
-                if f64::from(rng.next_f32()) < *chance {
+                if fx::roll() < *chance {
                     for other in monsters_near(game, victim, 3.0, id).into_iter().take(*targets as usize) {
                         queued.push(Pending::Hurt { id: other, amount, damage_type: "minecraft:player_attack" });
                     }
@@ -539,15 +563,61 @@ pub(super) fn melee(game: &super::Game<'_>, entity: i32, weapon: Option<&ItemSta
     *damage = amount;
 }
 
-fn now_nanos() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos().into())
+/// The attack strength of the player's last swing, from `critical_hit` (the swing resets it before the hit lands).
+static SWING: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0
+
+/// At the head of `native_critical_hit`, inside `Player.attack`: the swing's strength, for the hit that follows.
+pub(super) fn critical_hit(game: &super::Game<'_>) {
+    SWING.store(game.attack_strength_scale().to_bits(), Ordering::Relaxed);
+}
+
+/// The Apothic attributes on the player's melee hit: damage from the target's health, fire and cold damage
+/// (scaled by the swing), critical strikes, then armour pierce and shred.
+fn apothic_melee(mob: &horizon_client::mobs::Mob, damage: &mut f32) {
+    let scale = f64::from(f32::from_bits(SWING.swap(0x3f80_0000, Ordering::Relaxed)));
+    let mut amount = f64::from(*damage);
+    amount += f64::from(mob.health) * fx::stat("apothic_attributes:current_hp_damage") * scale;
+    amount += (fx::stat("apothic_attributes:fire_damage") + fx::stat("apothic_attributes:cold_damage")) * scale;
+    amount *= apothic_crit();
+    let (armor, toughness) = horizon_client::mobs::armor::values(mob);
+    amount = fx::pierced(
+        amount,
+        f64::from(armor),
+        f64::from(toughness),
+        fx::stat("apothic_attributes:armor_shred"),
+        fx::stat("apothic_attributes:armor_pierce"),
+    );
+    *damage = amount as f32;
+}
+
+/// The player's critical strike multiplier for one hit (1 without one).
+fn apothic_crit() -> f64 {
+    fx::crit_multiplier(fx::stat("apothic_attributes:crit_chance"), fx::stat("apothic_attributes:crit_damage"), fx::roll)
 }
 
 /// At the head of `native_living_incoming_damage` (no game here): for the player, the worn armour's damage
 /// reduction, and its effects when hurt, queued for the next tick.
-pub(super) fn incoming(kind: &str, damage_type: &str, causing: i32, amount: &mut f32) {
+pub(super) fn incoming(entity: i32, kind: &str, damage_type: &str, causing: i32, amount: &mut f32, canceled: &mut bool) {
+    let player = fx::player();
     if kind != "minecraft:player" {
+        // The player's arrows (marked as they hit): arrow and projectile damage, and critical strikes.
+        let marked = ARROW_HITS.lock().ok().and_then(|mut hits| {
+            let i = hits.iter().position(|&id| id as i32 == entity)?;
+            Some(hits.swap_remove(i))
+        });
+        if marked.is_some() && matches!(damage_type, "minecraft:arrow" | "minecraft:trident") {
+            let bonus = fx::stat("apothic_attributes:arrow_damage") * fx::stat("apothic_attributes:projectile_damage");
+            *amount = (f64::from(*amount) * bonus * apothic_crit()) as f32;
+        }
         return;
+    }
+    // Dodging a hit from another entity.
+    let dodge = fx::stat("apothic_attributes:dodge_chance");
+    if dodge > 0.0 && causing > 0 && player != Some(causing) {
+        if fx::roll() < dodge {
+            *canceled = true;
+            return;
+        }
     }
     let Ok(worn) = WORN.lock() else { return };
     if worn.is_empty() {
@@ -573,6 +643,40 @@ pub(super) fn incoming(kind: &str, damage_type: &str, causing: i32, amount: &mut
     }
 }
 
+/// At the head of `native_living_damage_post`: damage the player dealt in melee heals them by their life steal,
+/// next tick.
+pub(super) fn damage_dealt(kind: &str, damage_type: &str, amount: f32) {
+    // A mob's damage names no player as its cause: the player's melee is its damage type.
+    if kind == "minecraft:player" || damage_type != "minecraft:player_attack" || amount <= 0.0 {
+        return;
+    }
+    let heal = f64::from(amount) * fx::stat("apothic_attributes:life_steal");
+    if heal > 0.0 && let Ok(mut pending) = PENDING.lock() {
+        pending.push(Pending::Heal { amount: heal as f32 });
+    }
+}
+
+/// The player's uuid, recorded with the equipment: the server's game reaches them by it.
+static PLAYER_UUID: Mutex<Option<u128>> = Mutex::new(None);
+
+fn player_uuid(game: &mut super::Game<'_>) -> u128 {
+    PLAYER_UUID.lock().ok().and_then(|u| *u).unwrap_or_else(|| game.native_acting_id())
+}
+
+/// Heals the player by `amount` times their healing received, in the server's game (where they may not be in
+/// place: their health is read from their record and set through it).
+fn heal_player(game: &mut super::Game<'_>, amount: f32) {
+    let uuid = player_uuid(game);
+    let Some(Tag::Compound(record)) = game.native_player_compound(uuid) else { return };
+    let Some(Tag::Float(bits)) = record.get(&"Health".into()).cloned() else { return };
+    let health = f32::from_bits(bits);
+    if health <= 0.0 {
+        return;
+    }
+    let amount = amount * fx::stat("apothic_attributes:healing_received") as f32;
+    game.native_set_player_status(uuid, Some(health + amount), None, None);
+}
+
 /// At the head of `native_server_tick`: the effects queued by the hooks that can't reach the game.
 pub(super) fn server_tick(game: &mut super::Game<'_>) {
     let pending = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
@@ -585,6 +689,7 @@ pub(super) fn server_tick(game: &mut super::Game<'_>) {
                 game.native_hurt_entity(&dimension, id, amount, damage_type, None);
             }
             Pending::Bolt { at } => game.spawn_bolt(at, true),
+            Pending::Heal { amount } => heal_player(game, amount),
         }
     }
 }
@@ -599,20 +704,46 @@ fn held_bow(game: &super::Game<'_>) -> Option<ItemStack> {
 pub(super) fn projectile(game: &mut super::Game<'_>, kind: &str, owner: u32, entity: Option<u32>) {
     let Some(target) = entity else { return };
     // The player's own arrows (`owner` is the shooter's entity id).
-    let player = game.player.as_ref().map(|p| p.entity_id as u32);
-    if player != Some(owner) || !(kind.ends_with("arrow") || kind.ends_with("trident")) {
+    // This runs in the server's game, which may not hold the player in place: their id is the one the
+    // equipment recorded.
+    if fx::player() != Some(owner as i32) || !(kind.ends_with("arrow") || kind.ends_with("trident")) {
         return;
     }
-    let effects = stack_effects(held_bow(game).as_ref());
+    if let Ok(mut hits) = ARROW_HITS.lock() {
+        if hits.len() > 64 {
+            hits.clear();
+        }
+        hits.push(target);
+    }
+    let mut effects = BOW.lock().map(|b| b.clone()).unwrap_or_default();
+    if effects.is_empty() {
+        effects = stack_effects(held_bow(game).as_ref());
+    }
     for effect in &effects {
         if let Effect::MobEffect { source, target: t, effect, duration, amplifier, cooldown } = effect {
             match t {
                 Target::ArrowTarget if ready(source, *t, *cooldown) => queue_on_mob(target, effect, *amplifier, *duration),
-                Target::ArrowSelf if ready(source, *t, *cooldown) => effect_on_player(game, effect, *amplifier, *duration),
+                Target::ArrowSelf if ready(source, *t, *cooldown) => {
+                    if let Ok(mut pending) = PENDING.lock() {
+                        pending.push(Pending::OnPlayer { effect: effect.clone(), amplifier: *amplifier, duration: *duration });
+                    }
+                }
                 _ => {}
             }
         }
     }
+}
+
+/// The effects of the bow the player last let go, for its arrows' hits.
+static BOW: Mutex<Vec<Effect>> = Mutex::new(Vec::new());
+
+/// At the head of `native_arrow_loose`: the bow's effects for its arrow, and the player's draw speed.
+pub(super) fn arrow_loose(stack: &ItemStack, charge: &mut i32) {
+    if let Ok(mut bow) = BOW.lock() {
+        *bow = stack_effects(Some(stack));
+    }
+    let speed = fx::stat("apothic_attributes:draw_speed");
+    *charge = (f64::from(*charge) * speed).round() as i32;
 }
 
 /// Whether radial mining is breaking its extra blocks (so they don't mine areas themselves).

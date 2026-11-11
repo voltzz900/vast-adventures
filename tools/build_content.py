@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -319,6 +319,18 @@ AFFIXES_PT = {
     "breaker/enchantment/prosperous": ("Próspero", "da Fartura"),
     "breaker/effect/radial": ("Varredor", "da Pedreira"),
     "breaker/ability/supermassive": ("Colossal", "da Montanha"),
+    "armor/attribute/spiritual": ("Restaurador", "da Recuperação"),
+    "breaker/attribute/experienced": ("Erudito", "do Saber"),
+    "melee/attribute/giant_slaying": ("Derrubador", "dos Colossos"),
+    "melee/attribute/glacial": ("Gélido", "do Inverno"),
+    "melee/attribute/infernal": ("Escaldante", "da Pira"),
+    "melee/attribute/intricate": ("Preciso", "da Precisão"),
+    "melee/attribute/lacerating": ("Dilacerante", "das Feridas"),
+    "melee/attribute/piercing": ("Perfurante", "da Agulha"),
+    "melee/attribute/vampiric": ("Sanguinário", "da Sanguessuga"),
+    "ranged/attribute/agile": ("Destro", "da Aljava"),
+    "ranged/attribute/elven": ("Aguçado", "da Caça"),
+    "weapon/attribute/shredding": ("Estilhaçante", "dos Estilhaços"),
     "generic/telepathic": ("Telepático", "da Mente"),
     "melee/cleaving": ("Cortante", "do Cutelo"),
     "melee/executing": ("Executor", "do Carrasco"),
@@ -381,6 +393,15 @@ def lang():
                       ("festive", "%s chance of a shower of loot", "%s de chance de uma chuva de loot"),
                       ("radial", "Mines %sx%s", "Minera %sx%s")):
         en[f"apotheosis.{key}"], br[f"apotheosis.{key}"] = e, p
+    for key, e, p in (("crit_chance", "Critical Chance", "Chance de Crítico"), ("crit_damage", "Critical Damage", "Dano Crítico"),
+                      ("life_steal", "Life Steal", "Roubo de Vida"),
+                      ("current_hp_damage", "Damage from Current Health", "Dano pela Vida Atual"),
+                      ("fire_damage", "Fire Damage", "Dano de Fogo"), ("cold_damage", "Cold Damage", "Dano de Gelo"),
+                      ("armor_pierce", "Armor Pierce", "Perfuração de Armadura"), ("armor_shred", "Armor Shred", "Rasgo de Armadura"),
+                      ("dodge_chance", "Dodge Chance", "Chance de Esquiva"), ("healing_received", "Healing Received", "Cura Recebida"),
+                      ("experience_gained", "Experience Gained", "Experiência Ganha"), ("arrow_damage", "Arrow Damage", "Dano de Flecha"),
+                      ("projectile_damage", "Projectile Damage", "Dano de Projétil"), ("draw_speed", "Draw Speed", "Velocidade de Puxada")):
+        en[f"apotheosis.attribute.{key}"], br[f"apotheosis.attribute.{key}"] = e, p
     en["info.apotheosis.boss_spawn"] = "A %s boss has appeared: %s at %s %s %s"
     br["info.apotheosis.boss_spawn"] = "Um chefe %s apareceu: %s em %s %s %s"
     for key, e, p in (("undead_knight", "Undead Knight", "Cavaleiro Morto-Vivo"), ("honeyed_archer", "Honeyed Archer", "Arqueira do Mel"),
