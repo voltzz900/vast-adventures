@@ -6,3 +6,5 @@ pub mod apotheosis;
 pub mod apotheosis_data;
 #[path = "../mixins/apotheosis_native/gems.rs"]
 pub mod apotheosis_gems;
+#[path = "../mixins/apotheosis_native/bosses.rs"]
+pub mod apotheosis_bosses;

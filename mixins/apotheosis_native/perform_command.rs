@@ -1,4 +1,5 @@
-// /apotheosis tier [haven|frontier|ascent|summit|pinnacle]. The tier is the world's, saved with it.
+// /apotheosis tier [haven|frontier|ascent|summit|pinnacle]: the world's tier, saved with it.
+// /apotheosis boss: summons a boss at the player (operators).
 fn apotheosis_perform_command(
     game: &mut crate::game::Game<'_>,
     player: &crate::game::native_server::NativeServerPlayer,
@@ -6,6 +7,20 @@ fn apotheosis_perform_command(
     ran: &mut bool,
 ) {
     let words: Vec<&str> = command.split_whitespace().collect();
+    if words.as_slice() == ["apotheosis", "boss"] {
+        *ran = true;
+        if player.permission < 2 {
+            game.native_tell(player.uuid, horizon_client::text::Text::legacy("§cOnly operators can summon a boss."));
+            return;
+        }
+        let seed = player.uuid as u64 ^ std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+        let mut rng = horizon_world::apotheosis::Rng::new(seed);
+        let dimension = player.dimension.clone();
+        if crate::game::apotheosis_client::spawn_boss(game, &dimension, player.position, None, &mut rng).is_none() {
+            game.native_tell(player.uuid, horizon_client::text::Text::legacy("§cNo boss could be summoned here."));
+        }
+        return;
+    }
     let ["apotheosis", "tier", rest @ ..] = words.as_slice() else { return };
     *ran = true;
     let tiers = horizon_world::apotheosis::TIERS;

@@ -36,6 +36,21 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
   tooltip. Horizon applies only an item kind's own modifiers, so this mod adds a stack's from its data (0.1's
   affixes were stored but had no effect).
 
+## 0.3: bosses and elites
+
+- **Bosses** (Apotheosis' invaders): a monster the world spawns is now and then a boss instead, 1.8% to 3.5% of
+  the time by dimension and world tier (none in Haven), at most one every three minutes. A boss is one of the
+  dimension's 20 (bosses tied to a biome wait for a later version), at a rarity its stats list, with:
+  - more health, speed, damage and knockback, rolled from Apotheosis' stats for that rarity;
+  - fire resistance, and a glow for three minutes;
+  - its tier's gear set (iron to netherite), one piece of it made affix loot at the boss's rarity, which
+    always drops;
+  - a name in the rarity's colour, such as *Koreth the Cruel* (this port's own words);
+  - 30% of the time a gem in its off hand, which also always drops.
+  The chat says where it appeared. `/apotheosis boss` (operators) summons one at the player.
+- **Elites**: some skeletons (the Undead Knight and the Honeyed Archer) and wither skeletons (the Withering
+  Archer) spawn stronger, named, in their tier's gear, sometimes with one affix item that always drops.
+
 ### Not yet
 
 - Affixes and gem bonuses on attributes Horizon doesn't have: crit chance, life steal, fire and cold damage,
@@ -43,8 +58,11 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
   (Earth, Ender Surge, Inferno, Mageslayer) don't drop yet; a gem goes only into an item it has a working bonus
   for.
 - The effect and ability affixes and gem bonuses (bleeding, executing, enchantments, durability...).
-- Removing gems and adding sockets (the sigils), gem cutting, bosses and elites, the tier screen and its unlocks,
-  and the reforging, salvaging and augmenting tables.
+- Removing gems and adding sockets (the sigils), gem cutting, the tier screen and its unlocks, and the
+  reforging, salvaging and augmenting tables.
+- For bosses and elites: mounts and riders, scale, armour and the Apothic attributes in their stats, the
+  enchanting of their gear, the beam over a new boss, boss dungeons and rogue spawners, and the tier augments
+  that toughen every monster.
 
 ## Install
 
@@ -60,7 +78,8 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 - `tools/package.py` packs both files into `dist/`.
 
 It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
-`apply_enchantment_attributes` (for the stacks' modifiers) and the anvil's `native_anvil_update`.
+`apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
+`native_mobs_joined` (for bosses and elites).
 
 ## License
 

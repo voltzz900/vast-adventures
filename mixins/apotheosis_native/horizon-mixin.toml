@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.2.0"
+version = "0.3.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the
@@ -25,7 +25,16 @@ name = "apotheosis_gems"
 source = "gems.rs"
 visibility = "pub"
 
-# The game's side: stacks' own modifiers on the player and in tooltips, and socketing at the anvil.
+# Bosses and elites, as `horizon_world::apotheosis_bosses`.
+[[module]]
+id = "bosses"
+file = "crates/horizon-world/src/lib.rs"
+name = "apotheosis_bosses"
+source = "bosses.rs"
+visibility = "pub"
+
+# The game's side: stacks' own modifiers on the player and in tooltips, socketing at the anvil, and spawning
+# bosses and elites.
 [[module]]
 id = "client"
 file = "crates/horizon-client/src/game.rs"
@@ -167,4 +176,16 @@ bindings = [
   { name = "output", ty = "&mut Option<horizon_client::items::ItemStack>", value = "&mut *output" },
   { name = "xp_cost", ty = "&mut i32", value = "&mut *xp_cost" },
   { name = "material_cost", ty = "&mut i32", value = "&mut *material_cost" },
+]
+
+# Bosses and elites among the monsters the world spawns.
+[[injection]]
+id = "mobs-joined"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mobs_joined"
+helper = "mobs_joined.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "from", ty = "usize", value = "from" },
+  { name = "natural", ty = "bool", value = "natural" },
 ]

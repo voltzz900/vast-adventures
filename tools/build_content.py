@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -208,6 +208,16 @@ def lang():
         en[f"purity.apotheosis.{key}"], br[f"purity.apotheosis.{key}"] = e, p
     for key, (e, p) in CLASSES.items():
         en[f"gem_class.apotheosis.{key}"], br[f"gem_class.apotheosis.{key}"] = e, p
+    titles = re.findall(r'\("([a-z]+)", "(the [^"]+)", "([^"]+)"\),', (ROOT / "mixins/apotheosis_native/bosses.rs").read_text())
+    assert len(titles) >= 10, titles
+    en["apotheosis.boss_name"], br["apotheosis.boss_name"] = "%s %s", "%s, %s"
+    for key, e, p in titles:
+        en[f"apotheosis.boss_title.{key}"], br[f"apotheosis.boss_title.{key}"] = e, p
+    en["info.apotheosis.boss_spawn"] = "A %s boss has appeared: %s at %s %s %s"
+    br["info.apotheosis.boss_spawn"] = "Um chefe %s apareceu: %s em %s %s %s"
+    for key, e, p in (("undead_knight", "Undead Knight", "Cavaleiro Morto-Vivo"), ("honeyed_archer", "Honeyed Archer", "Arqueira do Mel"),
+                      ("withering_archer", "Withering Archer", "Arqueiro Fenecido"), ("craig", "Craig", "Craig")):
+        en[f"apotheosis.elite.{key}"], br[f"apotheosis.elite.{key}"] = e, p
     for gem, (_, _, e, p) in GEMS.items():
         en[f"item.apotheosis.gem_{gem}"] = f"Gem of {e}"
         br[f"item.apotheosis.gem_{gem}"] = f"Gema {p}"

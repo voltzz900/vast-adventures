@@ -28,8 +28,28 @@ def files(source):
             yield path.relative_to(source).as_posix(), json.loads(path.read_text())
 
 
+ALL = "data/apotheosis/"
+
+
+def everything(source):
+    """(path under data/apotheosis/, parsed JSON) for the gear sets, their tags and the spawn rules."""
+    with zipfile.ZipFile(source) as jar:
+        for name in sorted(jar.namelist()):
+            if name.startswith(ALL) and name.endswith(".json"):
+                yield name[len(ALL):], json.loads(jar.read(name))
+
+
 def main():
     rarities, overrides, affixes, entries, gems, purity = {}, {}, [], [], [], {}
+    invaders, elites, gear_sets, gear_tags, spawn_rules = [], [], {}, {}, {}
+    for path, value in everything(sys.argv[1]):
+        if path.startswith("placebo/gear_sets/"):
+            gear_sets["apotheosis:" + path[len("placebo/gear_sets/"):-5]] = value
+        elif path.startswith("tags/placebo/gear_sets/"):
+            gear_tags["apotheosis:" + path[len("tags/placebo/gear_sets/"):-5]] = [
+                v if isinstance(v, str) else v["id"] for v in value["values"]]
+        elif path == "data_maps/dimension_type/invader_spawn_rules.json":
+            spawn_rules = value["values"]
     for path, value in files(sys.argv[1]):
         kind, _, rest = path.partition("/")
         name = rest[:-len(".json")]
@@ -59,6 +79,20 @@ def main():
                 bonuses.append(bonus)
             gems.append({"id": f"apotheosis:{name}", "weights": value["weights"], "constraints": value.get("constraints", {}),
                          "min_purity": value.get("min_purity", "cracked"), "unique": value.get("unique", False), "bonuses": bonuses})
+        elif kind == "apothic_invaders":
+            b = value["basic_data"]
+            invaders.append({"id": f"apotheosis:{name}", "entity": value["entity"], "weights": b["weights"],
+                             "constraints": b.get("constraints", {}), "gear_sets": b.get("valid_gear_sets", {}),
+                             "stats": value["stats"]})
+        elif kind == "apothic_elites":
+            b = value["basic_data"]
+            ents = value["entities"]
+            elites.append({"id": f"apotheosis:{name}", "entities": [ents] if isinstance(ents, str) else ents,
+                           "success_chance": value["success_chance"], "weights": b["weights"],
+                           "constraints": b.get("constraints", {}), "gear_sets": b.get("valid_gear_sets", {}),
+                           "name": b.get("name"), "stats": value["stats"],
+                           "affix_chance": value.get("affix_data", {}).get("affix_chance", -1),
+                           "rarities": value.get("affix_data", {}).get("rarities", [])})
         elif kind == "purity_weights":
             purity = value["weights"]
         elif kind == "affix_loot_entries":
@@ -84,8 +118,17 @@ def main():
         + "\n/// Gems: weights, constraints, lowest purity, whether one per item, and bonuses by item class.\n"
         + const("GEMS", gems)
         + "\n/// Purity weights per world tier.\n"
-        + const("PURITY_WEIGHTS", purity))
-    print(f"{OUT}: {len(rarities)} rarities, {len(overrides)} overrides, {len(affixes)} attribute affixes, {len(entries)} loot entries, {len(gems)} gems")
+        + const("PURITY_WEIGHTS", purity)
+        + "\n/// Bosses (Apotheosis' invaders): entity, weights, constraints, gear sets per tier and stats per rarity.\n"
+        + const("INVADERS", invaders)
+        + "\n/// Elites: the mobs they turn, chance, weights, constraints, gear sets, name, stats and affix chance.\n"
+        + const("ELITES", elites)
+        + "\n/// Gear sets by id, and the tags that group them by tier.\n"
+        + const("GEAR_SETS", gear_sets)
+        + const("GEAR_TAGS", gear_tags)
+        + "\n/// Boss spawn chances per dimension and tier.\n"
+        + const("SPAWN_RULES", spawn_rules))
+    print(f"{OUT}: {len(rarities)} rarities, {len(overrides)} overrides, {len(affixes)} attribute affixes, {len(entries)} loot entries, {len(gems)} gems, {len(invaders)} invaders, {len(elites)} elites, {len(gear_sets)} gear sets")
 
 
 if __name__ == "__main__":

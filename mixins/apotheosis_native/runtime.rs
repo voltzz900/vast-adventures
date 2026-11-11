@@ -15,8 +15,8 @@ use std::sync::{OnceLock, RwLock};
 
 pub const ID: &str = "apotheosis_native";
 pub const NAME: &str = "Apotheosis";
-pub const VERSION: &str = "0.2.0";
-pub const DESCRIPTION: &str = "Rarities, affixes, sockets and gems on loot, as Apotheosis rolls them.";
+pub const VERSION: &str = "0.3.0";
+pub const DESCRIPTION: &str = "Rarities, affixes, sockets, gems, bosses and elites, as Apotheosis rolls them.";
 
 // ---- world tier ---------------------------------------------------------------
 
@@ -477,6 +477,16 @@ fn rarity_name(id: &str) -> &'static str {
         "apotheosis:mythic" => "Mythic",
         _ => "Unknown",
     }
+}
+
+/// A rarity's id, by its index.
+pub fn rarity_id(rarity: usize) -> String {
+    data().rarities.get(rarity).map(|r| r.id.clone()).unwrap_or_default()
+}
+
+/// A rarity's colour, by its index.
+pub fn rarity_color(rarity: usize) -> String {
+    data().rarities.get(rarity).map(|r| r.color.clone()).unwrap_or_else(|| "#FFFFFF".into())
 }
 
 /// The rarity's line under an item's name.
