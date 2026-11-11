@@ -40,7 +40,7 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 
 - **Bosses** (Apotheosis' invaders): a monster the world spawns is now and then a boss instead, 1.8% to 3.5% of
   the time by dimension and world tier (none in Haven), at most one every three minutes. A boss is one of the
-  dimension's 20 (bosses tied to a biome wait for a later version), at a rarity its stats list, with:
+  dimension's bosses (some only in their biomes, from 0.8), at a rarity its stats list, with:
   - more health, speed, damage and knockback, rolled from Apotheosis' stats for that rarity;
   - fire resistance, and a glow for three minutes;
   - its tier's gear set (iron to netherite), one piece of it made affix loot at the boss's rarity, which
@@ -103,6 +103,21 @@ by this mod (the tooltip lists them in blue):
 - **Dodge chance**: a share of the hits from other creatures miss you.
 - **Healing received**, **experience gained** (from blocks), **arrow and projectile damage** and **draw speed**.
 
+## 0.8: rogue spawners, boss dungeons and biome bosses
+
+New chunks of the overworld get Apotheosis' underground finds, as structure templates and world generation data
+in the content mod:
+
+- **Rogue spawners**: a spawner on a cave floor with a chest under it and a cover block over it. It is one of
+  Apotheosis' nine (brutal zombies, husks and pillagers, or swarms of spiders, cave spiders, silverfish and baby
+  zombies), with their stronger mobs and faster spawning, and the chest holds its kind's loot or, now and then,
+  the valuable chest's.
+- **Boss dungeons**: a stone brick room set into the rock, open where caves meet it, with two dungeon chests
+  and a boss spawner in the middle; or Apotheosis' own second room. When a player comes within 8 blocks the
+  spawner goes and a boss of the dimension's stands in its place.
+- **Bosses tied to a biome** now come too: the bogged in wet biomes, the husk in dry ones, the stray in cold ones
+  and the wolf pack leader in snowy ones (this port's own lists of the game's biomes for Apotheosis' tags).
+
 ## Not yet
 
 - The Apothic attributes still missing: overheal, protection pierce and shred, arrow velocity, cooldown
@@ -114,9 +129,11 @@ by this mod (the tooltip lists them in blue):
 - The Sigils of Rebirth and Enhancement (they fuel the reforging and augmenting tables, here the anvil),
   Malice and Supremacy (from Gateways), the tier screen and its unlocks, and the augmenting table.
 - Tier augments for monsters (armour, toughness): Horizon's mobs have no such attributes yet.
-- For bosses and elites: mounts and riders, scale, armour and the Apothic attributes in their stats, the
-  enchanting of their gear, the beam over a new boss, boss dungeons and rogue spawners, and the tier augments
-  that toughen every monster.
+- For bosses and elites: scale, armour and the Apothic attributes in their stats, the enchanting of their gear,
+  the beam over a new boss, and the tier augments that toughen every monster.
+- Apotheosis' towers (with the tomes and its painting) and its other world generation; the spawners'
+  rules beyond their timing (Apothic Spawners is a mod of its own).
+- The vines around a rogue spawner.
 
 ## Install
 
@@ -127,13 +144,14 @@ by this mod (the tooltip lists them in blue):
 ## Building
 
 - `tools/gen_data.py <Apotheosis jar>` regenerates `mixins/apotheosis_native/data.rs` from Apotheosis' data files.
-- `tools/build_content.py` builds `content/apotheosis` (gem items, sprites, lang).
+- `tools/build_content.py` builds `content/apotheosis` (gem items, sprites, lang, and with `tools/build_worldgen.py`
+  the rogue spawners and boss dungeons, from Apotheosis' data in `vendor/apotheosis`).
 - `cargo test` runs the tests: `src/lib.rs` builds the injected modules as an ordinary crate.
 - `tools/package.py` packs both files into `dist/`.
 
 It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
 `apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
-`native_mobs_joined` (for bosses and elites), the grindstone's `grindstone_result` and `grindstone_accepts`,
+`native_mobs_joined` (for bosses and elites; the boss spawner's mob is found in the server tick), the grindstone's `grindstone_result` and `grindstone_accepts`,
 the anvil's `anvil_take` and `anvil_used` (for sigils) and `ItemStack::enchantment_level` (for enchantment bonuses).
 Its `api` folder is an empty trait mod: the game asks some hook points, the player's melee hit among them, only
 while a trait mod is loaded.

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -442,6 +442,8 @@ def main():
     files["data/apotheosis/horizon/creative_tab/gems.json"] = {
         "title": "Apotheosis", "icon": "apotheosis:gem_ballast",
         "items": [f"apotheosis:gem_{g}" for g in GEMS] + [f"apotheosis:{m}" for m in MATERIALS]}
+    import build_worldgen
+    files.update(build_worldgen.files())
     en, br = lang()
     files["assets/apotheosis/lang/en_us.json"] = dict(sorted(en.items()))
     files["assets/apotheosis/lang/pt_br.json"] = dict(sorted(br.items()))

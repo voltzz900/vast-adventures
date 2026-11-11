@@ -272,7 +272,8 @@ pub(super) fn spawn_boss(
     rng: &mut horizon_world::apotheosis::Rng,
 ) -> Option<String> {
     use horizon_world::{apotheosis as core, apotheosis_bosses as bosses};
-    let plan = bosses::plan_boss(dimension, core::tier(), 0.0, rng)?;
+    let biome = game.native_biome([pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32]);
+    let plan = bosses::plan_boss(dimension, biome.as_deref(), core::tier(), 0.0, rng)?;
     let boss = game.native_summon(dimension, &plan.kind, pos, plan_nbt(&plan))?;
     apply_attributes(game, boss, &plan);
     if let Some(id) = replaces {
@@ -292,11 +293,60 @@ pub(super) fn spawn_boss(
     Some(line)
 }
 
+/// The tag of the mob a boss dungeon's spawner makes (`tools/build_worldgen.py`).
+const BOSS_SPAWNER_TAG: &str = "apotheosis.boss_spawner";
+
+/// A boss dungeon's spawner made its marked mob (a player came within 8 blocks): the spawner goes, and a boss
+/// stands where it was, as Apotheosis' boss spawner does. The spawner's mobs are loaded from its data, which
+/// `native_mobs_joined` doesn't hear: the server tick looks for them (`boss_spawners`).
+fn boss_spawners(game: &mut super::Game<'_>, from: usize) {
+    let marked: Vec<(u32, [f64; 3])> = game
+        .mobs
+        .get(from..)
+        .unwrap_or_default()
+        .iter()
+        .filter(|m| !m.removed && boss_marked(game, m.id))
+        .map(|m| (m.id, [m.position.x, m.position.y, m.position.z]))
+        .collect();
+    let dimension = game.dim.id().to_owned();
+    for (id, pos) in marked {
+        let base = [pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32];
+        let mut near: Vec<[i32; 3]> = (-4..=4)
+            .flat_map(|dx| (-2..=2).flat_map(move |dy| (-4..=4).map(move |dz| [base[0] + dx, base[1] + dy, base[2] + dz])))
+            .collect();
+        near.sort_by_key(|p| (p[0] - base[0]).pow(2) + (p[1] - base[1]).pow(2) + (p[2] - base[2]).pow(2));
+        let spawner = near.into_iter().find(|p| game.native_block(*p) == "minecraft:spawner");
+        game.native_remove_mob(&dimension, id);
+        // No spawner near: the mob wandered off before this saw it. It goes, and the spawner stays for next time.
+        let Some(p) = spawner else { continue };
+        if let Some(air) = game.pack.assets.registry.default_state("minecraft:air") {
+            game.native_set_block(&dimension, p, air, 3);
+        }
+        let at = [f64::from(p[0]) + 0.5, f64::from(p[1]), f64::from(p[2]) + 0.5];
+        let mut rng = horizon_world::apotheosis::Rng::new(u64::from(id) ^ now_secs().rotate_left(21) ^ at[0].to_bits());
+        spawn_boss(game, &dimension, at, None, &mut rng);
+    }
+}
+
+/// Whether mob `id` carries the boss spawner's tag (its saved data's `Tags`).
+fn boss_marked(game: &super::Game<'_>, id: u32) -> bool {
+    match game.persist.raw.get(&id).and_then(|raw| raw.get("Tags")) {
+        Some(Tag::List(tags)) => tags.iter().any(|t| matches!(t, Tag::String(s) if s.to_string_lossy() == BOSS_SPAWNER_TAG)),
+        _ => false,
+    }
+}
+
+static TICKS: AtomicU64 = AtomicU64::new(0);
+
 /// At the head of `native_mobs_joined`: for each monster the world just spawned, now and then a boss in its place
 /// (an invader, at most one every three minutes) or the mob made an elite.
 pub(super) fn mobs_joined(game: &mut super::Game<'_>, from: usize, natural: bool) {
     use horizon_world::{apotheosis as core, apotheosis_bosses as bosses, apotheosis_gems::is_monster};
-    if !natural || game.remote.is_some() {
+    if game.remote.is_some() {
+        return;
+    }
+    boss_spawners(game, from);
+    if !natural {
         return;
     }
     let dimension = game.dim.id().to_owned();
@@ -679,6 +729,9 @@ fn heal_player(game: &mut super::Game<'_>, amount: f32) {
 
 /// At the head of `native_server_tick`: the effects queued by the hooks that can't reach the game.
 pub(super) fn server_tick(game: &mut super::Game<'_>) {
+    if TICKS.fetch_add(1, Ordering::Relaxed) % 10 == 0 && game.remote.is_none() {
+        boss_spawners(game, 0);
+    }
     let pending = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
     for p in pending {
         match p {

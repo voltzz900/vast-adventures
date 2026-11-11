@@ -1,0 +1,114 @@
+{
+  "type": "minecraft:template",
+  "templates": [
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/husk"
+      },
+      "weight": 1780
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/husk_valuable"
+      },
+      "weight": 220
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/pillager"
+      },
+      "weight": 1780
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/pillager_valuable"
+      },
+      "weight": 220
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/rotating"
+      },
+      "weight": 890
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/rotating_valuable"
+      },
+      "weight": 110
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/zombie"
+      },
+      "weight": 2670
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/brutal/zombie_valuable"
+      },
+      "weight": 330
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/baby_zombie"
+      },
+      "weight": 890
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/baby_zombie_valuable"
+      },
+      "weight": 110
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/cave_spider"
+      },
+      "weight": 1780
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/cave_spider_valuable"
+      },
+      "weight": 220
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/fast_cave_spider"
+      },
+      "weight": 890
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/fast_cave_spider_valuable"
+      },
+      "weight": 110
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/silverfish"
+      },
+      "weight": 1780
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/silverfish_valuable"
+      },
+      "weight": 220
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/spider"
+      },
+      "weight": 2670
+    },
+    {
+      "data": {
+        "id": "apotheosis:rogue_spawner/swarm/spider_valuable"
+      },
+      "weight": 330
+    }
+  ],
+  "processors": "apotheosis:rogue_spawner"
+}

@@ -1,0 +1,17 @@
+{
+  "type": "neoforge:add_features",
+  "biomes": "#minecraft:is_overworld",
+  "features": [
+    "apotheosis:boss_dungeon_3_3_deep",
+    "apotheosis:boss_dungeon_3_4_deep",
+    "apotheosis:boss_dungeon_3_5_deep",
+    "apotheosis:boss_dungeon_4_3_deep",
+    "apotheosis:boss_dungeon_4_4_deep",
+    "apotheosis:boss_dungeon_4_5_deep",
+    "apotheosis:boss_dungeon_5_3_deep",
+    "apotheosis:boss_dungeon_5_4_deep",
+    "apotheosis:boss_dungeon_5_5_deep",
+    "apotheosis:boss_dungeon_2_deep"
+  ],
+  "step": "underground_structures"
+}

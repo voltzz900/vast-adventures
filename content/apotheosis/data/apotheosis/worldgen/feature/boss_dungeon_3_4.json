@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:template",
+  "processors": "apotheosis:boss_dungeon",
+  "templates": [
+    {
+      "data": {
+        "id": "apotheosis:boss_dungeon/room_3_4",
+        "rotations": [
+          "none",
+          "180"
+        ]
+      },
+      "weight": 1
+    }
+  ]
+}

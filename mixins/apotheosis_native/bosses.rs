@@ -67,15 +67,50 @@ pub fn spawn_chance(dimension: &str, tier: usize) -> f64 {
     data().spawn_rules.get(dimension).and_then(|r| r["spawn_chances"][core::TIERS[tier]].as_f64()).unwrap_or(0.0)
 }
 
-fn allowed(constraints: &Value, dimension: &str, tier: usize) -> bool {
+fn allowed(constraints: &Value, dimension: &str, biome: Option<&str>, tier: usize) -> bool {
     let list = |key: &str| constraints.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
     let dims = list("dimensions");
     let tiers = list("tiers");
-    // Biome-bound variants (a bogged in wet biomes...) wait until the biome is known here.
-    if constraints.get("biomes").is_some_and(|b| !b.is_null()) {
-        return false;
+    // Biome-bound variants (a bogged in wet biomes...) only where the biome is known and in their tag.
+    if let Some(tag) = constraints.get("biomes").filter(|b| !b.is_null()) {
+        let Some(biome) = biome else { return false };
+        let ok = match tag {
+            Value::String(t) => biome_in(t, biome),
+            Value::Array(list) => list.iter().filter_map(Value::as_str).any(|t| biome_in(t, biome)),
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
     }
     (dims.is_empty() || dims.iter().any(|d| d == dimension)) && (tiers.is_empty() || tiers.iter().any(|t| t == core::TIERS[tier]))
+}
+
+/// Whether `biome` is in `tag` (a biome id, or one of the convention tags the bosses name: the game has none, so
+/// these are this port's own lists of the vanilla biomes they mean).
+pub fn biome_in(tag: &str, biome: &str) -> bool {
+    let Some(tag) = tag.strip_prefix('#') else { return tag == biome };
+    let biome = biome.strip_prefix("minecraft:").unwrap_or(biome);
+    let list: &[&str] = match tag {
+        "c:is_wet/overworld" | "c:is_wet" => &[
+            "swamp", "mangrove_swamp", "jungle", "bamboo_jungle", "sparse_jungle", "beach", "lush_caves", "river",
+        ],
+        "c:is_dry/overworld" | "c:is_dry" => &[
+            "desert", "badlands", "wooded_badlands", "eroded_badlands", "savanna", "savanna_plateau", "windswept_savanna",
+        ],
+        "c:is_cold/overworld" | "c:is_cold" => &[
+            "taiga", "old_growth_pine_taiga", "old_growth_spruce_taiga", "snowy_taiga", "snowy_plains", "ice_spikes",
+            "snowy_beach", "frozen_river", "grove", "snowy_slopes", "jagged_peaks", "frozen_peaks", "windswept_hills",
+            "windswept_gravelly_hills", "windswept_forest", "stony_peaks", "frozen_ocean", "deep_frozen_ocean",
+            "cold_ocean", "deep_cold_ocean",
+        ],
+        "c:is_snowy" => &[
+            "snowy_plains", "ice_spikes", "snowy_taiga", "snowy_beach", "frozen_river", "grove", "snowy_slopes",
+            "jagged_peaks", "frozen_peaks",
+        ],
+        _ => &[],
+    };
+    list.contains(&biome)
 }
 
 fn roll_value(value: &Value, rng: &mut Rng) -> f64 {
@@ -232,13 +267,13 @@ pub fn boss_name(color: &str, rng: &mut Rng) -> Value {
 
 /// A boss for a monster spawn in `dimension`: an invader allowed there, weighted by tier and luck, at a rarity
 /// from those its stats list, with its tier's gear, one affix item that always drops, and sometimes a gem.
-pub fn plan_boss(dimension: &str, tier: usize, luck: f32, rng: &mut Rng) -> Option<Plan> {
+pub fn plan_boss(dimension: &str, biome: Option<&str>, tier: usize, luck: f32, rng: &mut Rng) -> Option<Plan> {
     let d = data();
     let pool: Vec<(usize, i64)> = d
         .invaders
         .iter()
         .enumerate()
-        .filter(|(_, b)| allowed(&b["constraints"], dimension, tier))
+        .filter(|(_, b)| allowed(&b["constraints"], dimension, biome, tier))
         .map(|(i, b)| (i, core::weight(&b["weights"], tier, luck)))
         .collect();
     let boss = &d.invaders[core::pick(rng, &pool)?];
@@ -272,7 +307,7 @@ pub fn plan_elite(kind: &str, dimension: &str, tier: usize, luck: f32, rng: &mut
         .iter()
         .enumerate()
         .filter(|(_, e)| e["entities"].as_array().is_some_and(|l| l.iter().any(|x| x == kind)))
-        .filter(|(_, e)| allowed(&e["constraints"], dimension, tier))
+        .filter(|(_, e)| allowed(&e["constraints"], dimension, None, tier))
         .map(|(i, e)| (i, core::weight(&e["weights"], tier, luck)))
         .collect();
     let elite = &d.elites[core::pick(rng, &pool)?];
@@ -325,7 +360,7 @@ mod tests {
         let mut gem_seen = false;
         for seed in 0..200 {
             let mut rng = Rng::new(seed);
-            let plan = plan_boss("minecraft:overworld", 3, 0.0, &mut rng).expect("an overworld boss");
+            let plan = plan_boss("minecraft:overworld", Some("minecraft:plains"), 3, 0.0, &mut rng).expect("an overworld boss");
             assert!(!plan.equipment.is_empty(), "{} has gear", plan.kind);
             assert!(plan.attrs.iter().all(|(a, _, _)| LOADED.contains(&a.as_str())));
             assert!(plan.effects.iter().any(|(e, _, _)| e == "minecraft:glowing"));
@@ -343,7 +378,7 @@ mod tests {
     fn nether_bosses_stay_in_the_nether() {
         let mut rng = Rng::new(1);
         for _ in 0..100 {
-            let plan = plan_boss("minecraft:the_nether", 4, 0.0, &mut rng).unwrap();
+            let plan = plan_boss("minecraft:the_nether", None, 4, 0.0, &mut rng).unwrap();
             assert!(["minecraft:blaze", "minecraft:piglin", "minecraft:piglin_brute", "minecraft:wither_skeleton",
                      "minecraft:zoglin", "minecraft:zombified_piglin"].contains(&plan.kind.as_str()), "{}", plan.kind);
         }
@@ -367,4 +402,19 @@ mod tests {
         assert!((final_value(20.0, "minecraft:max_health", &attrs) - 99.0).abs() < 1e-9);
         assert_eq!(final_value(3.0, "minecraft:attack_damage", &attrs), 3.0);
     }
+
+    #[test]
+    fn biome_bound_bosses() {
+        let mut rng = Rng::new(9);
+        let kinds = |biome: Option<&str>, rng: &mut Rng| -> std::collections::HashSet<String> {
+            (0..3000).filter_map(|_| plan_boss("minecraft:overworld", biome, 4, 0.0, rng)).map(|p| p.kind).collect()
+        };
+        let snowy = kinds(Some("minecraft:snowy_plains"), &mut rng);
+        assert!(snowy.contains("minecraft:wolf"), "{snowy:?}");
+        let plains = kinds(Some("minecraft:plains"), &mut rng);
+        assert!(!plains.contains("minecraft:wolf"), "{plains:?}");
+        assert!(biome_in("#c:is_dry/overworld", "minecraft:desert"));
+        assert!(!biome_in("#c:is_dry/overworld", "minecraft:swamp"));
+    }
+
 }

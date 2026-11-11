@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.7.0"
+version = "0.8.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the

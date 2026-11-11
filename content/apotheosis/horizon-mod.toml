@@ -1,6 +1,6 @@
 id = "apotheosis"
 name = "Apotheosis (content)"
-version = "0.7.0"
+version = "0.8.0"
 description = "The Apotheosis port's gem items and its names in English and Brazilian Portuguese. Install it with the native mod."
 authors = ["voltzz900"]
 api = "0.2"
