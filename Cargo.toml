@@ -1,9 +1,9 @@
 [package]
-name = "apotheosis-horizon"
+name = "vastadventures-horizon"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Apotheosis for Horizon: rarities and affixes on loot. Builds the injected module standalone, for its tests."
+description = "Vast Adventures for Horizon. Builds the injected modules standalone, for their tests."
 publish = false
 
 [lib]

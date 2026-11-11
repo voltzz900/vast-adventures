@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": "minecraft:amethyst_shard",
+    "E": "vastadventures:runed_slate",
+    "G": "vastadventures:gem_dust",
+    "U": "minecraft:gunpowder"
+  },
+  "pattern": [
+    "GUG",
+    "EEE",
+    "GAG"
+  ],
+  "result": {
+    "count": 3,
+    "id": "vastadventures:seal_of_sockets"
+  }
+}

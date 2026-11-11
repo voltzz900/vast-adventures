@@ -1,7 +1,9 @@
-# Apotheosis for Horizon
+# Vast Adventures
 
-A native mod and a content mod for [Horizon](https://github.com/horizon-rust/horizon): a port of
-[Apotheosis](https://github.com/Shadows-of-Fire/Apotheosis)' adventure module, one slice at a time.
+A native mod and a content mod for [Horizon](https://github.com/horizon-rust/horizon): loot with rarities and
+affixes, gems and sockets, bosses, elites, rogue spawners and boss dungeons. It is built from the MIT code and data
+of [Apotheosis](https://github.com/Shadows-of-Fire/Apotheosis)' adventure module (by Shadows_of_Fire), with names,
+words and art of its own. Until 0.8 it was called "Apotheosis for Horizon".
 
 ## 0.1: rarities and affixes
 
@@ -17,7 +19,7 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 - **Affixes** are attribute bonuses the game applies itself, in the item's slot, alongside the item's own
   bonuses. Examples: attack damage, attack speed, reach, armour, toughness, health, speed, knockback
   resistance and mining speed. Their size depends on the rarity and on a roll.
-- **World tier**: `/apotheosis tier` shows it, and `/apotheosis tier <haven|frontier|ascent|summit|pinnacle>`
+- **World tier**: `/vastadventures tier` shows it, and `/vastadventures tier <calm|wilds|rising|peril|apex>`
   sets it. Higher tiers roll rarer items. It is one tier for the whole world, saved with it. Anyone may set it
   until Apotheosis' tier unlocks are ported.
 
@@ -39,7 +41,7 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 ## 0.3: bosses and elites
 
 - **Bosses** (Apotheosis' invaders): a monster the world spawns is now and then a boss instead, 1.8% to 3.5% of
-  the time by dimension and world tier (none in Haven), at most one every three minutes. A boss is one of the
+  the time by dimension and world tier (none in Calm), at most one every three minutes. A boss is one of the
   dimension's bosses (some only in their biomes, from 0.8), at a rarity its stats list, with:
   - more health, speed, damage and knockback, rolled from Apotheosis' stats for that rarity;
   - fire resistance, and a glow for three minutes;
@@ -47,30 +49,30 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
     always drops;
   - a name in the rarity's colour, such as *Koreth the Cruel* (this port's own words);
   - 30% of the time a gem in its off hand, which also always drops.
-  The chat says where it appeared. `/apotheosis boss` (operators) summons one at the player.
-- **Elites**: some skeletons (the Undead Knight and the Honeyed Archer) and wither skeletons (the Withering
+  The chat says where it appeared. `/vastadventures boss` (operators) summons one at the player.
+- **Elites**: some skeletons (the Grave Knight and the Hive Archer) and wither skeletons (the Withering
   Archer) spawn stronger, named, in their tier's gear, sometimes with one affix item that always drops.
 
 ## 0.4: salvaging, reforging and gem cutting
 
-At the game's own stations, with Apotheosis' materials (items drawn for this port):
+At the game's own stations, with the materials (items drawn for this port):
 
 - **Salvaging** (grindstone): an affix item alone salvages into one to four of its rarity's material:
-  Mysterious Scrap Metal (Common), Timeworn Fabric (Uncommon), Luminous Crystal Shard (Rare), Arcane Sands
-  (Epic), Godforged Pearl (Mythic). A gem salvages into Gem Dust, more the purer it is.
+  Rusted Scrap (Common), Faded Cloth (Uncommon), Glow Shard (Rare), Starsand
+  (Epic), Titan Pearl (Mythic). A gem salvages into Gem Dust, more the purer it is.
 - **Reforging** (anvil): an affix item on the left and its rarity's material on the right (1 to 3) reroll its
   affixes at the same rarity, for 2 to 50 levels. Its sockets and gems stay.
 - **Gem cutting** (anvil): a gem and Gem Dust (1, 3, 5, 7 or 9) make it one purity better, for 3 to 15 levels.
 
 The result is worked out from the item itself, so it is the same on every look (and a reforged item rerolls
-differently next time). Apotheosis' sigils, which reforging and cutting also take there, aren't ported yet.
+differently next time). Apotheosis' sigils for reforging and cutting aren't ported yet.
 
-## 0.5: sigils and the tier's luck
+## 0.5: seals and the tier's luck
 
-- **Gem-Fused Slate**: eight deepslate around a Gem Dust make eight; the sigils are made from it.
-- **Sigil of Socketing** (anvil, with the item): one more socket, up to two.
-- **Sigil of Withdrawal** (anvil): takes every gem out of an item; the gems pop out on top of the anvil.
-- **Sigil of Unnaming** (anvil): takes the affix name off an item.
+- **Runed Slate**: eight deepslate around a Gem Dust make eight; the seals are made from it.
+- **Seal of Sockets** (anvil, with the item): one more socket, up to two.
+- **Seal of Extraction** (anvil): takes every gem out of an item; the gems pop out on top of the anvil.
+- **Seal of Erasure** (anvil): takes the affix name off an item.
 - **World tier**: the player's luck grows by the tier (+20% to +100%), as Apotheosis' tier augments do.
 
 ## 0.6: effect and ability affixes
@@ -118,6 +120,13 @@ in the content mod:
 - **Bosses tied to a biome** now come too: the bogged in wet biomes, the husk in dry ones, the stray in cold ones
   and the wolf pack leader in snowy ones (this port's own lists of the game's biomes for Apotheosis' tags).
 
+## 0.9: Vast Adventures
+
+The port takes a name of its own. Its mods are now `vastadventures_native` and `vastadventures` (items
+`vastadventures:...`, the command `/vastadventures`), its world tiers Calm, Wilds, Rising, Peril and Apex, and its
+materials, seals, gems and elites have names of their own. The second kind of boss dungeon is a deepslate hall of
+this port's own. Items and worlds from 0.8 and before carry the old ids.
+
 ## Not yet
 
 - The Apothic attributes still missing: overheal, protection pierce and shred, arrow velocity, cooldown
@@ -126,7 +135,7 @@ in the content mod:
 - The effects that need the Apothic attributes or effects (bleeding, sundering, knowledge...), shield affixes,
   durability affixes, the spectral and magical arrows, and Psychic, Retreating, Catalyzing, Omnetic,
   Stoneforming and Enlightened.
-- The Sigils of Rebirth and Enhancement (they fuel the reforging and augmenting tables, here the anvil),
+- Seals like Apotheosis' Sigils of Rebirth and Enhancement (they fuel the reforging and augmenting tables, here the anvil),
   Malice and Supremacy (from Gateways), the tier screen and its unlocks, and the augmenting table.
 - Tier augments for monsters (armour, toughness): Horizon's mobs have no such attributes yet.
 - For bosses and elites: scale, armour and the Apothic attributes in their stats, the enchanting of their gear,
@@ -137,22 +146,22 @@ in the content mod:
 
 ## Install
 
-- **The native mod:** `apotheosis_native-<version>.hnmod`. Install it, then build natives in the launcher.
-- **The content mod:** `apotheosis-<version>.hmod`, with the gem items and the names in English and Brazilian
+- **The native mod:** `vastadventures_native-<version>.hnmod`. Install it, then build natives in the launcher.
+- **The content mod:** `vastadventures-<version>.hmod`, with the gem items and the names in English and Brazilian
   Portuguese. Install both.
 
 ## Building
 
-- `tools/gen_data.py <Apotheosis jar>` regenerates `mixins/apotheosis_native/data.rs` from Apotheosis' data files.
-- `tools/build_content.py` builds `content/apotheosis` (gem items, sprites, lang, and with `tools/build_worldgen.py`
-  the rogue spawners and boss dungeons, from Apotheosis' data in `vendor/apotheosis`).
+- `tools/gen_data.py <Apotheosis jar>` regenerates `mixins/vastadventures_native/data.rs` from Apotheosis' data files.
+- `tools/build_content.py` builds `content/vastadventures` (gem items, sprites, lang, and with `tools/build_worldgen.py`
+  the rogue spawners and boss dungeons, from Apotheosis' data in `vendor/vastadventures`).
 - `cargo test` runs the tests: `src/lib.rs` builds the injected modules as an ordinary crate.
 - `tools/package.py` packs both files into `dist/`.
 
 It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
 `apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
 `native_mobs_joined` (for bosses and elites; the boss spawner's mob is found in the server tick), the grindstone's `grindstone_result` and `grindstone_accepts`,
-the anvil's `anvil_take` and `anvil_used` (for sigils) and `ItemStack::enchantment_level` (for enchantment bonuses).
+the anvil's `anvil_take` and `anvil_used` (for seals) and `ItemStack::enchantment_level` (for enchantment bonuses).
 Its `api` folder is an empty trait mod: the game asks some hook points, the player's melee hit among them, only
 while a trait mod is loaded.
 
@@ -161,6 +170,6 @@ while a trait mod is loaded.
 MIT, see [LICENSE](LICENSE).
 
 Apotheosis is by Shadows_of_Fire (Stormraven Studios, LLC). Its code and data are MIT
-([NOTICE-apotheosis.txt](NOTICE-apotheosis.txt)), and this port carries its data files. Its assets
+([NOTICE-apotheosis.txt](NOTICE-apotheosis.txt)), and Vast Adventures carries its data files (with its ids renamed). Its assets
 (textures, models, sounds and lang) are all rights reserved and none are used. The names and words in this
 port are its own. Not affiliated with or endorsed by Apotheosis' authors.

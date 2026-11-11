@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Writes mixins/apotheosis_native/data.rs from Apotheosis' data files.
+"""Writes mixins/vastadventures_native/data.rs from Apotheosis' data files.
 
 Apotheosis' code and data are MIT (Copyright (c) 2018-2025 Stormraven Studios, LLC); its assets (textures, models,
 sounds, lang) are all rights reserved, so only data/ is read here, and the names this port shows are its own.
 
-Usage: gen_data.py <the Apotheosis jar or its unpacked data/apotheosis folder>
+Usage: gen_data.py <the Apotheosis jar or its unpacked data/vastadventures folder>
 """
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
 
 ROOT = "data/apotheosis/apotheosis/"
-OUT = Path(__file__).resolve().parent.parent / "mixins/apotheosis_native/data.rs"
+OUT = Path(__file__).resolve().parent.parent / "mixins/vastadventures_native/data.rs"
 
 
 def files(source):
@@ -32,11 +33,27 @@ ALL = "data/apotheosis/"
 
 
 def everything(source):
-    """(path under data/apotheosis/, parsed JSON) for the gear sets, their tags and the spawn rules."""
+    """(path under data/vastadventures/, parsed JSON) for the gear sets, their tags and the spawn rules."""
     with zipfile.ZipFile(source) as jar:
         for name in sorted(jar.namelist()):
             if name.startswith(ALL) and name.endswith(".json"):
                 yield name[len(ALL):], json.loads(jar.read(name))
+
+
+# Vast Adventures' own names for Apotheosis' ids: its namespace (and Apothic Attributes'), its world tiers and
+# the materials and sigils.
+TIERS = {"haven": "calm", "frontier": "wilds", "ascent": "rising", "summit": "peril", "pinnacle": "apex"}
+MATERIALS = {"mysterious_scrap_metal": "rusted_scrap", "timeworn_fabric": "faded_cloth",
+             "luminous_crystal_shard": "glow_shard", "arcane_sands": "starsand", "godforged_pearl": "titan_pearl",
+             "gem_fused_slate": "runed_slate", "sigil_of_socketing": "seal_of_sockets",
+             "sigil_of_withdrawal": "seal_of_extraction", "sigil_of_unnaming": "seal_of_erasure"}
+
+
+def rename(text):
+    text = re.sub(r"(?<![-\w])apotheosis", "vastadventures", text).replace("apothic_attributes", "vastadventures")
+    for old, new in {**TIERS, **MATERIALS}.items():
+        text = re.sub(r"\b" + old + r"\b", new, text)
+    return text
 
 
 def main():
@@ -44,9 +61,9 @@ def main():
     invaders, elites, gear_sets, gear_tags, spawn_rules = [], [], {}, {}, {}
     for path, value in everything(sys.argv[1]):
         if path.startswith("placebo/gear_sets/"):
-            gear_sets["apotheosis:" + path[len("placebo/gear_sets/"):-5]] = value
+            gear_sets["vastadventures:" + path[len("placebo/gear_sets/"):-5]] = value
         elif path.startswith("tags/placebo/gear_sets/"):
-            gear_tags["apotheosis:" + path[len("tags/placebo/gear_sets/"):-5]] = [
+            gear_tags["vastadventures:" + path[len("tags/placebo/gear_sets/"):-5]] = [
                 v if isinstance(v, str) else v["id"] for v in value["values"]]
         elif path == "data_maps/dimension_type/invader_spawn_rules.json":
             spawn_rules = value["values"]
@@ -54,11 +71,11 @@ def main():
         kind, _, rest = path.partition("/")
         name = rest[:-len(".json")]
         if kind == "rarities":
-            rarities[f"apotheosis:{name}"] = {k: value[k] for k in ("color", "weights", "rules", "sort_index") if k in value}
+            rarities[f"vastadventures:{name}"] = {k: value[k] for k in ("color", "weights", "rules", "sort_index") if k in value}
         elif kind == "rarity_override":
             overrides[value["category"]] = value["overrides"]
         elif kind == "affixes":
-            affixes.append({"id": f"apotheosis:{name}", **value})
+            affixes.append({"id": f"vastadventures:{name}", **value})
         elif kind == "gems":
             bonuses = []
             for b in value["bonuses"]:
@@ -73,17 +90,17 @@ def main():
                     key, types = None, []
                 bonus = {**{k: v for k, v in b.items() if k != "gem_class"}, "key": key, "types": types}
                 bonuses.append(bonus)
-            gems.append({"id": f"apotheosis:{name}", "weights": value["weights"], "constraints": value.get("constraints", {}),
+            gems.append({"id": f"vastadventures:{name}", "weights": value["weights"], "constraints": value.get("constraints", {}),
                          "min_purity": value.get("min_purity", "cracked"), "unique": value.get("unique", False), "bonuses": bonuses})
         elif kind == "apothic_invaders":
             b = value["basic_data"]
-            invaders.append({"id": f"apotheosis:{name}", "entity": value["entity"], "weights": b["weights"],
+            invaders.append({"id": f"vastadventures:{name}", "entity": value["entity"], "weights": b["weights"],
                              "constraints": b.get("constraints", {}), "gear_sets": b.get("valid_gear_sets", {}),
                              "stats": value["stats"]})
         elif kind == "apothic_elites":
             b = value["basic_data"]
             ents = value["entities"]
-            elites.append({"id": f"apotheosis:{name}", "entities": [ents] if isinstance(ents, str) else ents,
+            elites.append({"id": f"vastadventures:{name}", "entities": [ents] if isinstance(ents, str) else ents,
                            "success_chance": value["success_chance"], "weights": b["weights"],
                            "constraints": b.get("constraints", {}), "gear_sets": b.get("valid_gear_sets", {}),
                            "name": b.get("name"), "stats": value["stats"],
@@ -98,7 +115,7 @@ def main():
     def const(name, value):
         text = json.dumps(value, separators=(",", ":"), sort_keys=True)
         assert '"##' not in text
-        return f'pub const {name}: &str = r##"{text}"##;\n'
+        return f'pub const {name}: &str = r##"{rename(text)}"##;\n'
 
     OUT.write_text(
         "// Generated by tools/gen_data.py from Apotheosis' data files (MIT, Copyright (c) 2018-2025 Stormraven\n"

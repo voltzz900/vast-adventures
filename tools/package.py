@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Packs dist/apotheosis_native-<v>.hnmod (the native mod) and dist/apotheosis-<v>.hmod (its gems and names).
+"""Packs dist/vastadventures_native-<v>.hnmod (the native mod) and dist/vastadventures-<v>.hmod (its gems and names).
 
 Deterministic: fixed dates, sorted entries. Prints each file's SHA-256 for the registry.
 """
@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BUNDLE = ROOT / "mixins/apotheosis_native"
+BUNDLE = ROOT / "mixins/vastadventures_native"
 HOOKS = None  # pinned: it hooks the game's own functions besides the native hook points
 MIXINS = "5a64af938ec86b00d53d16a408aabc0038fb3e57"
 
@@ -31,19 +31,19 @@ def main():
     (ROOT / "horizon-native.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    native = dist / f"apotheosis_native-{version}.hnmod"
+    native = dist / f"vastadventures_native-{version}.hnmod"
     with zipfile.ZipFile(native, "w") as z:
         add(z, "horizon-native.json", (ROOT / "horizon-native.json").read_bytes())
         for f in sorted(BUNDLE.glob("*.rs")) + [BUNDLE / "horizon-mixin.toml"]:
-            add(z, f"mixins/apotheosis_native/{f.name}", f.read_bytes())
+            add(z, f"mixins/vastadventures_native/{f.name}", f.read_bytes())
         # The (empty) trait mod: some hook points are asked only while one is loaded.
         for f in sorted(p for p in (BUNDLE / "api").rglob("*") if p.is_file() and "target" not in p.parts):
-            add(z, f"mixins/apotheosis_native/{f.relative_to(BUNDLE).as_posix()}", f.read_bytes())
+            add(z, f"mixins/vastadventures_native/{f.relative_to(BUNDLE).as_posix()}", f.read_bytes())
         for name in ("LICENSE", "NOTICE-apotheosis.txt"):
-            add(z, f"mixins/apotheosis_native/{name}", (ROOT / name).read_bytes())
-    content = ROOT / "content/apotheosis"
+            add(z, f"mixins/vastadventures_native/{name}", (ROOT / name).read_bytes())
+    content = ROOT / "content/vastadventures"
     lang_version = tomllib.loads((content / "horizon-mod.toml").read_text())["version"]
-    lang = dist / f"apotheosis-{lang_version}.hmod"
+    lang = dist / f"vastadventures-{lang_version}.hmod"
     with zipfile.ZipFile(lang, "w") as z:
         for f in sorted(p for p in content.rglob("*") if p.is_file()):
             add(z, f.relative_to(content).as_posix(), f.read_bytes())

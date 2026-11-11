@@ -1,0 +1,9 @@
+{
+  "type": "neoforge:add_features",
+  "biomes": "#minecraft:is_overworld",
+  "features": [
+    "vastadventures:rogue_spawner",
+    "vastadventures:rogue_spawner_deep"
+  ],
+  "step": "underground_structures"
+}

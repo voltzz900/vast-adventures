@@ -3,14 +3,6 @@
 version = 4
 
 [[package]]
-name = "apotheosis-horizon"
-version = "0.1.0"
-dependencies = [
- "log",
- "serde_json",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -104,6 +96,14 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "vastadventures-horizon"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde_json",
+]
 
 [[package]]
 name = "zmij"

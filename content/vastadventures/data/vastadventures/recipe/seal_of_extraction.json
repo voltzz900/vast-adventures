@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": "minecraft:blaze_rod",
+    "E": "minecraft:ender_pearl",
+    "G": "vastadventures:runed_slate",
+    "L": "minecraft:lava_bucket",
+    "M": "vastadventures:gem_dust"
+  },
+  "pattern": [
+    "GBG",
+    "ELE",
+    "GMG"
+  ],
+  "result": {
+    "count": 4,
+    "id": "vastadventures:seal_of_extraction"
+  }
+}

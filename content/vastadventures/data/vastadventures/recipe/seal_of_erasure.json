@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "F": "minecraft:flint",
+    "G": "vastadventures:runed_slate"
+  },
+  "pattern": [
+    "GGG",
+    "FFF",
+    "GGG"
+  ],
+  "result": {
+    "count": 6,
+    "id": "vastadventures:seal_of_erasure"
+  }
+}

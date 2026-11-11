@@ -1,0 +1,8 @@
+id = "vastadventures"
+name = "Vast Adventures (content)"
+version = "0.9.0"
+description = "Vast Adventures' gems, materials, seals, dungeons and names in English and Brazilian Portuguese. Install it with the native mod."
+authors = ["voltzz900"]
+api = "0.2"
+side = "both"
+capabilities = ["registries"]
