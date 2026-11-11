@@ -468,6 +468,94 @@ pub fn cut_gem(gem_item: &str, gem_custom: &Value, right: &str, count: i32) -> O
     Some((gem_stack(gem, purity + 1), 3 * (purity as i32 + 1), dust))
 }
 
+// ---- sigils -------------------------------------------------------------------------
+
+pub const SIGIL_OF_SOCKETING: &str = "apotheosis:sigil_of_socketing";
+pub const SIGIL_OF_WITHDRAWAL: &str = "apotheosis:sigil_of_withdrawal";
+pub const SIGIL_OF_UNNAMING: &str = "apotheosis:sigil_of_unnaming";
+/// Sockets a Sigil of Socketing adds up to (Apotheosis' `add_sockets` recipe).
+const MAX_ADDED_SOCKETS: u64 = 2;
+
+pub fn is_sigil(item: &str) -> bool {
+    [SIGIL_OF_SOCKETING, SIGIL_OF_WITHDRAWAL, SIGIL_OF_UNNAMING].contains(&item)
+}
+
+/// An item after a sigil: its new data, and whether its affix name goes.
+pub struct Sigiled {
+    pub custom: Value,
+    pub modifiers: Value,
+    pub lore: Value,
+    pub clear_name: bool,
+}
+
+/// A sigil on an item at the anvil: Socketing adds a socket (up to two), Withdrawal takes every gem out,
+/// Unnaming takes the affix name off. None when it does nothing to this item.
+pub fn sigil(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, sigil: &str) -> Option<Sigiled> {
+    core::category(item)?;
+    let mut custom = custom.cloned().filter(|c| c.get("apotheosis").is_some()).unwrap_or_else(|| json!({"apotheosis": {}}));
+    let a = custom["apotheosis"].clone();
+    let mut clear_name = false;
+    match sigil {
+        SIGIL_OF_SOCKETING => {
+            let sockets = a["sockets"].as_u64().unwrap_or(0);
+            if sockets >= MAX_ADDED_SOCKETS {
+                return None;
+            }
+            custom["apotheosis"]["sockets"] = json!(sockets + 1);
+        }
+        SIGIL_OF_WITHDRAWAL => {
+            if a["gems"].as_array().is_none_or(Vec::is_empty) {
+                return None;
+            }
+            custom["apotheosis"].as_object_mut()?.remove("gems");
+        }
+        SIGIL_OF_UNNAMING => {
+            if a["affixes"].as_object().is_none_or(Map::is_empty) {
+                return None;
+            }
+            clear_name = true;
+        }
+        _ => return None,
+    }
+    let mut list: Vec<Value> = modifiers.or(core::defaults_of(item).modifiers.as_ref()).map(core::modifier_list).unwrap_or_default();
+    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("apotheosis:")));
+    list.extend(core::own_modifiers(item, &custom));
+    let lore = lore_for(&custom);
+    Some(Sigiled { custom, modifiers: Value::Array(list), lore, clear_name })
+}
+
+/// Gems a Sigil of Withdrawal took out, waiting to be given to the player once the anvil's take is done.
+static WITHDRAWN: std::sync::Mutex<Vec<MadeGem>> = std::sync::Mutex::new(Vec::new());
+
+/// At the anvil's take, before its inputs are used up: the gems of an item withdrawn with a sigil.
+pub fn queue_withdrawn(left_item: &str, left_custom: Option<&Value>, right_item: &str) {
+    if right_item != SIGIL_OF_WITHDRAWAL || core::category(left_item).is_none() {
+        return;
+    }
+    let gems = left_custom.map(socketed_gems).unwrap_or_default();
+    if let Ok(mut queue) = WITHDRAWN.lock() {
+        queue.extend(gems);
+    }
+}
+
+/// The withdrawn gems waiting for the player, emptying the queue.
+pub fn take_withdrawn() -> Vec<MadeGem> {
+    WITHDRAWN.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+}
+
+/// The gems socketed in an item, as items, for a Sigil of Withdrawal to give back.
+pub fn socketed_gems(custom: &Value) -> Vec<MadeGem> {
+    custom["apotheosis"]["gems"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            let gem = gem_named(g["gem"].as_str()?)?;
+            Some(gem_stack(gem, g["purity"].as_str().and_then(purity_named).unwrap_or(0)))
+        })
+        .collect()
+}
+
 // ---- loot tables --------------------------------------------------------------
 
 /// Apotheosis' `gem_entity_drops` (0.5%) and `gem_entity_drops_from_real_players` (4%), together, for a monster a
@@ -634,6 +722,24 @@ mod tests {
         assert_eq!((better.purity, levels, dust), ("normal", 9, 5));
         let perfect = gem_stack(gem_named("apotheosis:core/ballast").unwrap(), 5);
         assert!(cut_gem(&perfect.item, &perfect.components[0].1, GEM_DUST, 64).is_none());
+    }
+
+    #[test]
+    fn sigils_add_sockets_take_gems_and_names() {
+        let plain = sigil("minecraft:diamond_sword", None, None, SIGIL_OF_SOCKETING).unwrap();
+        assert_eq!(plain.custom["apotheosis"]["sockets"], 1);
+        let two = sigil("minecraft:diamond_sword", Some(&plain.custom), None, SIGIL_OF_SOCKETING).unwrap();
+        assert!(sigil("minecraft:diamond_sword", Some(&two.custom), None, SIGIL_OF_SOCKETING).is_none(), "two at most");
+        let gemmed = json!({"apotheosis": {"rarity": "apotheosis:rare", "sockets": 2,
+                            "affixes": {"apotheosis:melee/attribute/violent": 0.5},
+                            "gems": [{"gem": "apotheosis:core/ballast", "purity": "flawed"}]}});
+        assert_eq!(socketed_gems(&gemmed).len(), 1);
+        let out = sigil("minecraft:diamond_sword", Some(&gemmed), None, SIGIL_OF_WITHDRAWAL).unwrap();
+        assert!(out.custom["apotheosis"].get("gems").is_none());
+        assert!(!out.modifiers.as_array().unwrap().iter().any(|m| m["id"].as_str().unwrap().starts_with("apotheosis:gem/")));
+        assert!(sigil("minecraft:diamond_sword", Some(&out.custom), None, SIGIL_OF_WITHDRAWAL).is_none(), "nothing to take");
+        assert!(sigil("minecraft:diamond_sword", Some(&gemmed), None, SIGIL_OF_UNNAMING).unwrap().clear_name);
+        assert!(sigil("minecraft:stick", None, None, SIGIL_OF_SOCKETING).is_none());
     }
 
     #[test]

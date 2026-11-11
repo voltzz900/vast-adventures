@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -156,6 +156,45 @@ SHAPES.update({
     ],
 })
 
+SHAPES.update({
+    "sigil": [
+        "................",
+        "................",
+        ".....000000.....",
+        "....06655540....",
+        "...0654444430...",
+        "...0543..3420...",
+        "...054.66.420...",
+        "...054.66.420...",
+        "...0543..3320...",
+        "...0544444320...",
+        "...0433333220...",
+        "....03222210....",
+        ".....000000.....",
+        "................",
+        "................",
+        "................",
+    ],
+    "slab": [
+        "................",
+        "................",
+        "................",
+        "...0000000000...",
+        "..066565656550..",
+        "..065444544430..",
+        "..054433343320..",
+        "..054344443420..",
+        "..043333333310..",
+        "..043223332210..",
+        "..032222222110..",
+        "...0000000000...",
+        "................",
+        "................",
+        "................",
+        "................",
+    ],
+})
+
 # Apotheosis' crafting materials: what salvaging gives and reforging and gem cutting cost. Shape, colour, English
 # and Portuguese names are this port's own.
 MATERIALS = {
@@ -165,6 +204,20 @@ MATERIALS = {
     "arcane_sands": ("pile", 0xC77DFF, "Arcane Sands", "Areia Arcana"),
     "godforged_pearl": ("round", 0xFFE7A8, "Godforged Pearl", "Pérola Forjada pelos Deuses"),
     "gem_dust": ("pile", 0xD06AA8, "Gem Dust", "Pó de Gema"),
+    "gem_fused_slate": ("slab", 0x5B5266, "Gem-Fused Slate", "Ardósia Fundida com Gema"),
+    "sigil_of_socketing": ("sigil", 0x3FA7D6, "Sigil of Socketing", "Sigilo de Encaixe"),
+    "sigil_of_withdrawal": ("sigil", 0xD6643F, "Sigil of Withdrawal", "Sigilo de Retirada"),
+    "sigil_of_unnaming": ("sigil", 0x9A9A9A, "Sigil of Unnaming", "Sigilo de Desnomear"),
+}
+# Crafting recipes for the slate and the sigils (Apotheosis' own shapes).
+RECIPES = {
+    "gem_fused_slate": (["DDD", "DGD", "DDD"], {"D": "minecraft:deepslate", "G": "apotheosis:gem_dust"}, 8),
+    "sigil_of_socketing": (["GUG", "EEE", "GAG"], {"A": "minecraft:amethyst_shard", "E": "apotheosis:gem_fused_slate",
+                                                   "G": "apotheosis:gem_dust", "U": "minecraft:gunpowder"}, 3),
+    "sigil_of_withdrawal": (["GBG", "ELE", "GMG"], {"B": "minecraft:blaze_rod", "E": "minecraft:ender_pearl",
+                                                    "G": "apotheosis:gem_fused_slate", "L": "minecraft:lava_bucket",
+                                                    "M": "apotheosis:gem_dust"}, 4),
+    "sigil_of_unnaming": (["GGG", "FFF", "GGG"], {"F": "minecraft:flint", "G": "apotheosis:gem_fused_slate"}, 6),
 }
 
 # Each gem's shape and base colour, picked by hand; English and Portuguese names are this port's own.
@@ -314,6 +367,10 @@ def main():
                                                                "textures": {"layer0": f"apotheosis:item/{item}"}}
         files[f"assets/apotheosis/items/{item}.json"] = {"model": {"type": "minecraft:model", "model": f"apotheosis:item/{item}"}}
         files[f"assets/apotheosis/textures/item/{item}.png"] = png(SHAPES[shape], ramp(colour))
+    for item, (pattern, key, count) in RECIPES.items():
+        files[f"data/apotheosis/recipe/{item}.json"] = {"type": "minecraft:crafting_shaped", "category": "misc",
+                                                        "key": key, "pattern": pattern,
+                                                        "result": {"count": count, "id": f"apotheosis:{item}"}}
     files["data/apotheosis/horizon/creative_tab/gems.json"] = {
         "title": "Apotheosis", "icon": "apotheosis:gem_ballast",
         "items": [f"apotheosis:gem_{g}" for g in GEMS] + [f"apotheosis:{m}" for m in MATERIALS]}

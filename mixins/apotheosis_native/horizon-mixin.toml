@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.4.0"
+version = "0.5.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the
@@ -210,4 +210,24 @@ target = "horizon_client::stations::grindstone_accepts"
 helper = "grindstone_accepts.rs"
 bindings = [
   { name = "stack", ty = "&ItemStack", value = "stack" },
+]
+
+# A Sigil of Withdrawal's gems: queued as the anvil's result is taken, given once it is.
+[[injection]]
+id = "anvil-take"
+kind = "HEAD"
+target = "horizon_client::menu::Menu::anvil_take"
+helper = "anvil_take.rs"
+bindings = [
+  { name = "menu", ty = "&Menu", value = "&*self" },
+]
+
+[[injection]]
+id = "anvil-used"
+kind = "HEAD"
+target = "horizon_client::game::stations::Game<'_>::anvil_used"
+helper = "anvil_used.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
 ]

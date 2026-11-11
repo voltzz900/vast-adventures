@@ -65,6 +65,14 @@ At the game's own stations, with Apotheosis' materials (items drawn for this por
 The result is worked out from the item itself, so it is the same on every look (and a reforged item rerolls
 differently next time). Apotheosis' sigils, which reforging and cutting also take there, aren't ported yet.
 
+## 0.5: sigils and the tier's luck
+
+- **Gem-Fused Slate**: eight deepslate around a Gem Dust make eight; the sigils are made from it.
+- **Sigil of Socketing** (anvil, with the item): one more socket, up to two.
+- **Sigil of Withdrawal** (anvil): takes every gem out of an item; the gems pop out on top of the anvil.
+- **Sigil of Unnaming** (anvil): takes the affix name off an item.
+- **World tier**: the player's luck grows by the tier (+20% to +100%), as Apotheosis' tier augments do.
+
 ### Not yet
 
 - Affixes and gem bonuses on attributes Horizon doesn't have: crit chance, life steal, fire and cold damage,
@@ -72,8 +80,9 @@ differently next time). Apotheosis' sigils, which reforging and cutting also tak
   (Earth, Ender Surge, Inferno, Mageslayer) don't drop yet; a gem goes only into an item it has a working bonus
   for.
 - The effect and ability affixes and gem bonuses (bleeding, executing, enchantments, durability...).
-- The sigils (removing gems, adding sockets, malice and supremacy), the tier screen and its unlocks, and the
-  augmenting table.
+- The Sigils of Rebirth and Enhancement (they fuel the reforging and augmenting tables, here the anvil),
+  Malice and Supremacy (from Gateways), the tier screen and its unlocks, and the augmenting table.
+- Tier augments for monsters (armour, toughness): Horizon's mobs have no such attributes yet.
 - For bosses and elites: mounts and riders, scale, armour and the Apothic attributes in their stats, the
   enchanting of their gear, the beam over a new boss, boss dungeons and rogue spawners, and the tier augments
   that toughen every monster.

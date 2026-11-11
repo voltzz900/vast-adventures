@@ -15,7 +15,7 @@ use std::sync::{OnceLock, RwLock};
 
 pub const ID: &str = "apotheosis_native";
 pub const NAME: &str = "Apotheosis";
-pub const VERSION: &str = "0.4.0";
+pub const VERSION: &str = "0.5.0";
 pub const DESCRIPTION: &str = "Rarities, affixes, sockets, gems, bosses and elites, as Apotheosis rolls them.";
 
 // ---- world tier ---------------------------------------------------------------

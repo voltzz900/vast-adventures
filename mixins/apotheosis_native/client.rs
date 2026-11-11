@@ -51,6 +51,11 @@ pub(super) fn apply_equipment(game: &mut super::Game<'_>) {
             }
         }
     }
+    // The world tier's luck (Apotheosis' tier augments for players).
+    let luck = [0.0, 0.2, 0.3, 0.5, 1.0][horizon_world::apotheosis::tier()];
+    if luck > 0.0 && player.set_modifier_unclamped("minecraft:luck", "apotheosis:tier/luck", luck, "add_multiplied_total", true).is_ok() {
+        game.applied_modifiers.push(("minecraft:luck".to_owned(), "apotheosis:tier/luck".to_owned()));
+    }
     if added {
         let _ = player.clamp_health_to_max();
     }
@@ -88,6 +93,10 @@ pub(super) fn anvil(
     material_cost: &mut i32,
 ) {
     let Some(right) = right else { return };
+    if horizon_world::apotheosis_gems::is_sigil(&right.item) {
+        sigil(left, right, output, xp_cost, material_cost);
+        return;
+    }
     let gems = horizon_world::apotheosis_gems::is_material(&right.item) || &*right.item == horizon_world::apotheosis_gems::GEM_DUST;
     if gems {
         craft(left, right, output, xp_cost, material_cost);
@@ -335,4 +344,48 @@ fn craft(left: &ItemStack, right: &ItemStack, output: &mut Option<ItemStack>, xp
     *output = Some(out);
     *xp_cost = r.levels;
     *material_cost = r.material_cost;
+}
+
+/// A sigil on an item at the anvil, for a level.
+fn sigil(left: &ItemStack, right: &ItemStack, output: &mut Option<ItemStack>, xp_cost: &mut i32, material_cost: &mut i32) {
+    let custom = component(left, "minecraft:custom_data");
+    let modifiers = component(left, "minecraft:attribute_modifiers");
+    let Some(s) = horizon_world::apotheosis_gems::sigil(&left.item, custom.as_ref(), modifiers.as_ref(), &right.item) else {
+        *output = None;
+        *xp_cost = 0;
+        return;
+    };
+    let mut out = left.clone();
+    out.count = 1;
+    let data = out.data_mut();
+    if s.clear_name {
+        data.set_loot_component("minecraft:custom_name", &Value::Null);
+    }
+    data.set_loot_component("minecraft:custom_data", &s.custom);
+    data.set_loot_component("minecraft:attribute_modifiers", &s.modifiers);
+    data.set_loot_component("minecraft:lore", &s.lore);
+    out.tidy();
+    *output = Some(out);
+    *xp_cost = 1;
+    *material_cost = 1;
+}
+
+/// At the head of `Game::anvil_used`, once an anvil's result is taken: the gems a Sigil of Withdrawal took out pop
+/// out on top of the anvil, for the player to pick up (summoned, so the server's world has them).
+pub(super) fn anvil_used(game: &mut super::Game<'_>, pos: [i32; 3]) {
+    use horizon_client_core::scoreboard::json_to_tag;
+    let dimension = game.dim.id().to_owned();
+    for gem in horizon_world::apotheosis_gems::take_withdrawn() {
+        let mut components = serde_json::Map::new();
+        components.insert("minecraft:custom_name".into(), gem.name.clone());
+        for (id, value) in &gem.components {
+            components.insert(id.clone(), value.clone());
+        }
+        let item = serde_json::json!({"id": gem.item, "count": 1, "components": components});
+        let nbt = compound(vec![("Item", json_to_tag(&item)), ("PickupDelay", Tag::Short(10))]);
+        let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 1.1, f64::from(pos[2]) + 0.5];
+        if game.native_summon(&dimension, "minecraft:item", at, nbt).is_none() {
+            log::warn!("Apotheosis: a withdrawn gem couldn't be dropped: {}", gem.item);
+        }
+    }
 }
