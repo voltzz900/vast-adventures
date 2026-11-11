@@ -1,0 +1,27 @@
+{
+  "title": "Apotheosis Gems",
+  "icon": "apotheosis:gem_ballast",
+  "items": [
+    "apotheosis:gem_ballast",
+    "apotheosis:gem_brawlers",
+    "apotheosis:gem_breach",
+    "apotheosis:gem_combatant",
+    "apotheosis:gem_guardian",
+    "apotheosis:gem_lightning",
+    "apotheosis:gem_lunar",
+    "apotheosis:gem_samurai",
+    "apotheosis:gem_slipstream",
+    "apotheosis:gem_solar",
+    "apotheosis:gem_splendor",
+    "apotheosis:gem_tyrannical",
+    "apotheosis:gem_warlord",
+    "apotheosis:gem_earth",
+    "apotheosis:gem_royalty",
+    "apotheosis:gem_verdant_ruin",
+    "apotheosis:gem_endersurge",
+    "apotheosis:gem_mageslayer",
+    "apotheosis:gem_blood_lord",
+    "apotheosis:gem_inferno",
+    "apotheosis:gem_molten_breach"
+  ]
+}
