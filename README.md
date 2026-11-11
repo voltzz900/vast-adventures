@@ -73,13 +73,32 @@ differently next time). Apotheosis' sigils, which reforging and cutting also tak
 - **Sigil of Unnaming** (anvil): takes the affix name off an item.
 - **World tier**: the player's luck grows by the tier (+20% to +100%), as Apotheosis' tier augments do.
 
-### Not yet
+## 0.6: effect and ability affixes
+
+Affixes and gem bonuses that do more than add an attribute, from Apotheosis' data, shown in the tooltip in green:
+
+- **Status effects**: a weapon's hit gives the target (or the wielder) an effect such as Weakness or Slowness, a
+  bow's arrow does the same where it lands, armour gives one when its wearer is hurt (or to the attacker), and a
+  tool when it breaks a block. Each has Apotheosis' cooldown. Only the game's own effects; Apothic ones wait.
+- **Damage reduction** (armour): less fall, fire, magic, explosion or projectile damage, up to 95% in all.
+- **Enchantment bonuses**: extra levels of an enchantment the item has (such as *Prosperous* adding Fortune), of
+  one it hasn't, or of all of them, as the affix says.
+- **Executing** (a hit that leaves a monster below a share of its health kills it), **Thunderstruck** (lightning
+  that hurts the monsters around the target), **Cleaving** (the hit also lands on monsters nearby).
+- **Radial** (tools): breaks the blocks around the one mined, in Apotheosis' shapes, but only those the tool is
+  made for and none that can't be broken.
+- **Telepathic**: what the item breaks or kills goes straight into the inventory.
+- **Festive**: now and then a kill drops its loot more than once.
+
+## Not yet
 
 - Affixes and gem bonuses on attributes Horizon doesn't have: crit chance, life steal, fire and cold damage,
   armour pierce/shred, draw speed and the other Apothic Attributes ones. Gems whose bonuses are all of these
   (Earth, Ender Surge, Inferno, Mageslayer) don't drop yet; a gem goes only into an item it has a working bonus
   for.
-- The effect and ability affixes and gem bonuses (bleeding, executing, enchantments, durability...).
+- The effects that need the Apothic attributes or effects (bleeding, sundering, knowledge...), shield affixes,
+  durability affixes, the spectral and magical arrows, and Psychic, Retreating, Catalyzing, Omnetic,
+  Stoneforming and Enlightened.
 - The Sigils of Rebirth and Enhancement (they fuel the reforging and augmenting tables, here the anvil),
   Malice and Supremacy (from Gateways), the tier screen and its unlocks, and the augmenting table.
 - Tier augments for monsters (armour, toughness): Horizon's mobs have no such attributes yet.
@@ -102,7 +121,10 @@ differently next time). Apotheosis' sigils, which reforging and cutting also tak
 
 It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
 `apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
-`native_mobs_joined` (for bosses and elites) and the grindstone's `grindstone_result` and `grindstone_accepts`.
+`native_mobs_joined` (for bosses and elites), the grindstone's `grindstone_result` and `grindstone_accepts`,
+the anvil's `anvil_take` and `anvil_used` (for sigils) and `ItemStack::enchantment_level` (for enchantment bonuses).
+Its `api` folder is an empty trait mod: the game asks some hook points, the player's melee hit among them, only
+while a trait mod is loaded.
 
 ## License
 

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -304,6 +304,35 @@ AFFIXES_PT = {
     "melee/attribute/murderous": ("Cruel", "da Matança"), "melee/attribute/violent": ("Feroz", "da Fúria"),
     "ranged/attribute/windswept": ("Veloz", "do Vento"), "shield/attribute/ironforged": ("Resistente", "do Ferro"),
     "shield/attribute/stalwart": ("Inabalável", "da Rocha"), "shield/attribute/steel_touched": ("Tenaz", "do Aço"),
+    "armor/dmg_reduction/blast_forged": ("Antiexplosivo", "da Explosão"),
+    "armor/dmg_reduction/blockading": ("Bloqueador", "do Bastião"),
+    "armor/dmg_reduction/deflective": ("Defletor", "da Deflexão"),
+    "armor/dmg_reduction/feathery": ("Plumoso", "da Queda"),
+    "armor/dmg_reduction/grounded": ("Aterrado", "da Tempestade"),
+    "armor/dmg_reduction/runed": ("Rúnico", "das Runas"),
+    "armor/mob_effect/blinding": ("Ofuscante", "da Escuridão"),
+    "armor/mob_effect/bolstering": ("Fortificante", "da Resistência"),
+    "armor/mob_effect/nimble": ("Ligeiro", "da Fuga"),
+    "armor/mob_effect/revitalizing": ("Revigorante", "da Renovação"),
+    "breaker/mob_effect/spelunkers": ("Espeleólogo", "das Cavernas"),
+    "breaker/mob_effect/swift": ("Apressado", "da Pressa"),
+    "breaker/enchantment/prosperous": ("Próspero", "da Fartura"),
+    "breaker/effect/radial": ("Varredor", "da Pedreira"),
+    "breaker/ability/supermassive": ("Colossal", "da Montanha"),
+    "generic/telepathic": ("Telepático", "da Mente"),
+    "melee/cleaving": ("Cortante", "do Cutelo"),
+    "melee/executing": ("Executor", "do Carrasco"),
+    "melee/festive": ("Festivo", "do Banquete"),
+    "melee/thunderstruck": ("Fulminante", "do Trovão"),
+    "melee/mob_effect/elusive": ("Esquivo", "da Brisa"),
+    "melee/mob_effect/weakening": ("Debilitante", "da Fraqueza"),
+    "ranged/enchantment/prosperous": ("Próspero", "dos Espólios"),
+    "ranged/mob_effect/blighted": ("Pestilento", "da Praga"),
+    "ranged/mob_effect/deathbound": ("Mortal", "da Cova"),
+    "ranged/mob_effect/ensnaring": ("Enredante", "das Armadilhas"),
+    "ranged/mob_effect/fleeting": ("Fugaz", "do Passo do Vento"),
+    "ranged/mob_effect/ivy_laced": ("Venenoso", "do Veneno"),
+    "ranged/mob_effect/shulkers": ("Levitante", "do Shulker"),
 }
 RARITIES = [("common", "Common", "Comum"), ("uncommon", "Uncommon", "Incomum"), ("rare", "Rare", "Raro"),
             ("epic", "Epic", "Épico"), ("mythic", "Mythic", "Mítico")]
@@ -334,6 +363,24 @@ def lang():
     en["apotheosis.boss_name"], br["apotheosis.boss_name"] = "%s %s", "%s, %s"
     for key, e, p in titles:
         en[f"apotheosis.boss_title.{key}"], br[f"apotheosis.boss_title.{key}"] = e, p
+    for key, e, p in (("on_hit_target", "on hit, to the target", "ao acertar, no alvo"), ("on_hit_self", "on hit, to you", "ao acertar, em você"),
+                      ("hurt_self", "when hurt, to you", "ao levar dano, em você"), ("hurt_attacker", "when hurt, to the attacker", "ao levar dano, no atacante"),
+                      ("arrow_target", "on an arrow hit, to the target", "ao acertar uma flecha, no alvo"),
+                      ("arrow_self", "on an arrow hit, to you", "ao acertar uma flecha, em você"),
+                      ("break_self", "on breaking a block, to you", "ao quebrar um bloco, em você")):
+        en[f"apotheosis.when.{key}"], br[f"apotheosis.when.{key}"] = e, p
+    for kind, e, p in (("physical", "physical", "físico"), ("projectile", "projectile", "de projétil"), ("fall", "fall", "de queda"),
+                       ("explosion", "explosion", "de explosão"), ("magic", "magic", "mágico"), ("lightning", "lightning", "de raio"),
+                       ("fire", "fire", "de fogo")):
+        en[f"apotheosis.reduction.{kind}"] = f"-%s {e} damage taken"
+        br[f"apotheosis.reduction.{kind}"] = f"-%s de dano {p} recebido"
+    for key, e, p in (("executing", "Executes below %s health", "Executa abaixo de %s de vida"),
+                      ("thunderstruck", "Lightning deals %s to nearby enemies", "Raios causam %s aos inimigos próximos"),
+                      ("cleaving", "%s chance to hit %s more enemies", "%s de chance de acertar mais %s inimigos"),
+                      ("telepathic", "Drops go to your inventory", "Os drops vão direto pro inventário"),
+                      ("festive", "%s chance of a shower of loot", "%s de chance de uma chuva de loot"),
+                      ("radial", "Mines %sx%s", "Minera %sx%s")):
+        en[f"apotheosis.{key}"], br[f"apotheosis.{key}"] = e, p
     en["info.apotheosis.boss_spawn"] = "A %s boss has appeared: %s at %s %s %s"
     br["info.apotheosis.boss_spawn"] = "Um chefe %s apareceu: %s em %s %s %s"
     for key, e, p in (("undead_knight", "Undead Knight", "Cavaleiro Morto-Vivo"), ("honeyed_archer", "Honeyed Archer", "Arqueira do Mel"),

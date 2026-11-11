@@ -33,6 +33,7 @@ fn own_modifiers(stack: &ItemStack) -> Vec<(String, String, f64, String, String)
 /// At the end of `Game::apply_equipment`: the worn and held stacks' own modifiers, applied as the item kind's are
 /// and recorded so the next call takes them off again.
 pub(super) fn apply_equipment(game: &mut super::Game<'_>) {
+    remember_worn(game);
     let slots = ["head", "chest", "legs", "feet"];
     let mut equipped: Vec<(Option<ItemStack>, &str)> = game.armor.iter().cloned().zip(slots).collect();
     equipped.push((game.inventory[game.selected].clone(), "mainhand"));
@@ -63,6 +64,7 @@ pub(super) fn apply_equipment(game: &mut super::Game<'_>) {
 
 /// The tooltip's lines for this mod's modifiers, as the item kind's are drawn, without their slot headers.
 pub(super) fn tooltip(stack: &ItemStack, lines: &mut Vec<(horizon_client::text::Text, u32)>) {
+    effect_lines(stack, lines);
     let own = own_modifiers(stack);
     if own.is_empty() {
         return;
@@ -387,5 +389,323 @@ pub(super) fn anvil_used(game: &mut super::Game<'_>, pos: [i32; 3]) {
         if game.native_summon(&dimension, "minecraft:item", at, nbt).is_none() {
             log::warn!("Apotheosis: a withdrawn gem couldn't be dropped: {}", gem.item);
         }
+    }
+}
+
+// ---- effects: affixes and gems beyond attributes -------------------------------------
+
+use horizon_world::apotheosis_effects::{self as fx, Effect, Target};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// The worn armour's effects (damage reduction, effects when hurt), worked out with the equipment.
+static WORN: Mutex<Vec<Effect>> = Mutex::new(Vec::new());
+/// Effects waiting for the next server tick: they come from hooks that can't reach the game.
+static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+/// When each effect last fired, for its cooldown.
+static COOLDOWNS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+enum Pending {
+    OnPlayer { effect: String, amplifier: i32, duration: i32 },
+    OnMob { id: u32, effect: String, amplifier: i32, duration: i32 },
+    Hurt { id: u32, amount: f32, damage_type: &'static str },
+    Bolt { at: [f64; 3] },
+}
+
+/// A stack's effects, from its `custom_data`.
+fn stack_effects(stack: Option<&ItemStack>) -> Vec<Effect> {
+    let Some(stack) = stack else { return Vec::new() };
+    component(stack, "minecraft:custom_data").map_or_else(Vec::new, |c| fx::effects(&stack.item, &c))
+}
+
+/// Whether an effect from `source` may fire now (its cooldown in ticks has passed), marking it fired.
+fn ready(source: &str, target: Target, cooldown: i32) -> bool {
+    let Ok(mut map) = COOLDOWNS.lock() else { return true };
+    let map = map.get_or_insert_with(HashMap::new);
+    let key = format!("{source}/{target:?}");
+    let now = Instant::now();
+    if map.get(&key).is_some_and(|t| now.duration_since(*t) < Duration::from_millis(cooldown.max(0) as u64 * 50)) {
+        return false;
+    }
+    map.insert(key, now);
+    true
+}
+
+fn effect_on_player(game: &mut super::Game<'_>, effect: &str, amplifier: i32, duration: i32) {
+    let player = game.native_acting_id();
+    let effect = horizon_client::mod_api::NativeEffect {
+        id: effect.to_owned(),
+        amplifier: amplifier.clamp(0, 255) as u8,
+        duration,
+        ambient: false,
+        particles: true,
+    };
+    game.native_add_effect(player, &effect);
+}
+
+fn effect_on_mob(game: &mut super::Game<'_>, id: u32, effect: &str, amplifier: i32, duration: i32) {
+    let Some(entity) = game.native_entity(id) else { return };
+    let nbt = compound(vec![(
+        "active_effects",
+        Tag::List(vec![Tag::Compound(compound(vec![
+            ("id", Tag::String(effect.into())),
+            ("amplifier", Tag::Byte(amplifier.clamp(0, 127) as i8)),
+            ("duration", Tag::Int(duration)),
+            ("show_particles", Tag::Byte(1)),
+        ]))]),
+    )]);
+    let applied = game.native_entity_merge_nbt(entity, nbt);
+    log::info!("apotheosis: {effect} on mob {id}: {applied}");
+}
+
+fn queue_on_mob(id: u32, effect: &str, amplifier: i32, duration: i32) {
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.push(Pending::OnMob { id, effect: effect.to_owned(), amplifier, duration });
+    }
+}
+
+/// The monsters within `radius` of `at` in the world, but `except`.
+fn monsters_near(game: &super::Game<'_>, at: [f64; 3], radius: f64, except: u32) -> Vec<u32> {
+    game.mobs
+        .iter()
+        .filter(|m| !m.removed && m.id != except)
+        .filter(|m| horizon_world::apotheosis_gems::is_monster(&super::native_hooks::mob_kind(m)))
+        .filter(|m| {
+            let d = [m.position.x - at[0], m.position.y - at[1], m.position.z - at[2]];
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= radius * radius
+        })
+        .map(|m| m.id)
+        .collect()
+}
+
+/// Remembers the worn armour's effects, with the equipment (`apply_equipment`).
+pub(super) fn remember_worn(game: &super::Game<'_>) {
+    let mut worn = Vec::new();
+    for piece in game.armor.iter() {
+        worn.extend(stack_effects(piece.as_ref()));
+    }
+    if let Ok(mut w) = WORN.lock() {
+        *w = worn;
+    }
+}
+
+/// At the head of `native_living_incoming_damage_v2`, the player's melee hit on mob `entity`: the weapon's
+/// effects. Executing changes the damage; the rest wait for the next tick, as the game is mid-hurt here.
+pub(super) fn melee(game: &super::Game<'_>, entity: i32, weapon: Option<&ItemStack>, damage: &mut f32) {
+    let effects = stack_effects(weapon);
+    if effects.is_empty() {
+        return;
+    }
+    let Some(mob) = game.mobs.iter().find(|m| i64::from(m.id) == i64::from(entity) && !m.removed) else { return };
+    let id = mob.id;
+    let victim = [mob.position.x, mob.position.y, mob.position.z];
+    let mut amount = *damage;
+    let mut rng = horizon_world::apotheosis::Rng::new(u64::from(id) ^ now_nanos() ^ now_secs().rotate_left(13));
+    let mut queued = Vec::new();
+    for effect in &effects {
+        match effect {
+            Effect::MobEffect { source, target: Target::AttackTarget, effect, duration, amplifier, cooldown } if ready(source, Target::AttackTarget, *cooldown) => {
+                queued.push(Pending::OnMob { id, effect: effect.clone(), amplifier: *amplifier, duration: *duration });
+            }
+            Effect::MobEffect { source, target: Target::AttackSelf, effect, duration, amplifier, cooldown } if ready(source, Target::AttackSelf, *cooldown) => {
+                queued.push(Pending::OnPlayer { effect: effect.clone(), amplifier: *amplifier, duration: *duration });
+            }
+            Effect::Executing { threshold } => {
+                let max = horizon_client::mobs::finalize::max_health(mob);
+                if max > 0.0 && f64::from((mob.health - amount) / max) < *threshold {
+                    amount = amount.max(mob.health + 1.0);
+                }
+            }
+            Effect::Thunderstruck { damage } => {
+                for other in monsters_near(game, victim, 4.0, id) {
+                    queued.push(Pending::Hurt { id: other, amount: *damage as f32, damage_type: "minecraft:lightning_bolt" });
+                }
+                queued.push(Pending::Bolt { at: victim });
+            }
+            Effect::Cleaving { chance, targets } => {
+                if f64::from(rng.next_f32()) < *chance {
+                    for other in monsters_near(game, victim, 3.0, id).into_iter().take(*targets as usize) {
+                        queued.push(Pending::Hurt { id: other, amount, damage_type: "minecraft:player_attack" });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.extend(queued);
+    }
+    *damage = amount;
+}
+
+fn now_nanos() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos().into())
+}
+
+/// At the head of `native_living_incoming_damage` (no game here): for the player, the worn armour's damage
+/// reduction, and its effects when hurt, queued for the next tick.
+pub(super) fn incoming(kind: &str, damage_type: &str, causing: i32, amount: &mut f32) {
+    if kind != "minecraft:player" {
+        return;
+    }
+    let Ok(worn) = WORN.lock() else { return };
+    if worn.is_empty() {
+        return;
+    }
+    let cut = fx::reduction(&worn, damage_type);
+    if cut > 0.0 {
+        *amount *= (1.0 - cut) as f32;
+    }
+    let Ok(mut pending) = PENDING.lock() else { return };
+    for effect in worn.iter() {
+        match effect {
+            Effect::MobEffect { source, target: Target::HurtSelf, effect, duration, amplifier, cooldown } if ready(source, Target::HurtSelf, *cooldown) => {
+                pending.push(Pending::OnPlayer { effect: effect.clone(), amplifier: *amplifier, duration: *duration });
+            }
+            Effect::MobEffect { source, target: Target::HurtAttacker, effect, duration, amplifier, cooldown }
+                if causing > 0 && ready(source, Target::HurtAttacker, *cooldown) =>
+            {
+                pending.push(Pending::OnMob { id: causing as u32, effect: effect.clone(), amplifier: *amplifier, duration: *duration });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// At the head of `native_server_tick`: the effects queued by the hooks that can't reach the game.
+pub(super) fn server_tick(game: &mut super::Game<'_>) {
+    let pending = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
+    for p in pending {
+        match p {
+            Pending::OnPlayer { effect, amplifier, duration } => effect_on_player(game, &effect, amplifier, duration),
+            Pending::OnMob { id, effect, amplifier, duration } => effect_on_mob(game, id, &effect, amplifier, duration),
+            Pending::Hurt { id, amount, damage_type } => {
+                let dimension = game.dim.id().to_owned();
+                game.native_hurt_entity(&dimension, id, amount, damage_type, None);
+            }
+            Pending::Bolt { at } => game.spawn_bolt(at, true),
+        }
+    }
+}
+
+/// The bow (or crossbow) the player holds, main hand first.
+fn held_bow(game: &super::Game<'_>) -> Option<ItemStack> {
+    let is_bow = |s: &ItemStack| horizon_world::apotheosis::category(&s.item) == Some("bow");
+    game.inventory[game.selected].clone().filter(is_bow).or_else(|| game.offhand.clone().filter(is_bow))
+}
+
+/// At the head of `native_projectile_impact`: the player's arrow hitting a mob, with the bow's arrow effects.
+pub(super) fn projectile(game: &mut super::Game<'_>, kind: &str, owner: u32, entity: Option<u32>) {
+    let Some(target) = entity else { return };
+    // The player's own arrows (`owner` is the shooter's entity id).
+    let player = game.player.as_ref().map(|p| p.entity_id as u32);
+    if player != Some(owner) || !(kind.ends_with("arrow") || kind.ends_with("trident")) {
+        return;
+    }
+    let effects = stack_effects(held_bow(game).as_ref());
+    for effect in &effects {
+        if let Effect::MobEffect { source, target: t, effect, duration, amplifier, cooldown } = effect {
+            match t {
+                Target::ArrowTarget if ready(source, *t, *cooldown) => queue_on_mob(target, effect, *amplifier, *duration),
+                Target::ArrowSelf if ready(source, *t, *cooldown) => effect_on_player(game, effect, *amplifier, *duration),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Whether radial mining is breaking its extra blocks (so they don't mine areas themselves).
+static MINING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// At the head of `native_destroy_block`: the tool's effects on breaking a block, and radial mining.
+pub(super) fn destroy_block(game: &mut super::Game<'_>, pos: [i32; 3]) {
+    if MINING.load(Ordering::Relaxed) {
+        return;
+    }
+    let tool = game.inventory[game.selected].clone();
+    let effects = stack_effects(tool.as_ref());
+    for effect in &effects {
+        match effect {
+            Effect::MobEffect { source, target: Target::BreakSelf, effect, duration, amplifier, cooldown } if ready(source, Target::BreakSelf, *cooldown) => {
+                effect_on_player(game, effect, *amplifier, *duration);
+            }
+            Effect::Radial { width, x_off, height, y_off } => {
+                let telepathic = effects.iter().any(|e| matches!(e, Effect::Telepathic));
+                let player = game.native_acting_id();
+                MINING.store(true, Ordering::Relaxed);
+                for p in fx::radial_area(pos, game.yaw, game.pitch, *width, *x_off, *height, *y_off) {
+                    if !radial_breaks(game, p, tool.as_ref()) {
+                        continue;
+                    }
+                    let drops = game.native_machine_destroy_block(p, tool.as_ref(), telepathic).unwrap_or_default();
+                    for stack in drops {
+                        if let Some(rest) = game.native_give_stack(player, stack) {
+                            drop_stack(game, p, &rest);
+                        }
+                    }
+                }
+                MINING.store(false, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `stack` dropped as an item at the block `pos`.
+fn drop_stack(game: &mut super::Game<'_>, pos: [i32; 3], stack: &ItemStack) {
+    let dimension = game.dim.id().to_owned();
+    let nbt = compound(vec![("Item", horizon_items::item_nbt::item_to_nbt(stack)), ("PickupDelay", Tag::Short(10))]);
+    let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.25, f64::from(pos[2]) + 0.5];
+    let _ = game.native_summon(&dimension, "minecraft:item", at, nbt);
+}
+
+/// Whether radial mining takes the block at `pos` too: breakable, and one the tool is made for (as
+/// Apotheosis' radial affix asks), so a pickaxe leaves the dirt and bedrock around the ore.
+fn radial_breaks(game: &super::Game<'_>, pos: [i32; 3], tool: Option<&ItemStack>) -> bool {
+    let state = game.world.block(pos[0], pos[1], pos[2]);
+    let facts = game.res.facts().get(state);
+    facts.hardness >= 0.0
+        && game.items().mining_speed(tool, &facts.name) > 1.0
+        && (!facts.requires_tool || game.items().correct_for_drops(tool, &facts.name))
+}
+
+/// At the head of `native_loot_drops`: telepathic drops go to the player, and a festive kill now and then
+/// showers its loot.
+pub(super) fn loot_drops(game: &mut super::Game<'_>, context: &horizon_client::mod_api::NativeLootDrops<'_>, drops: &mut Vec<ItemStack>) {
+    let Some(player) = context.player else { return };
+    let held = game.inventory[game.selected].clone();
+    let effects = if context.block.is_some() { stack_effects(context.tool) } else { stack_effects(held.as_ref()) };
+    if effects.is_empty() {
+        return;
+    }
+    if context.entity.is_some() {
+        for effect in &effects {
+            if let Effect::Festive { chance, rolls } = effect {
+                let mut rng = horizon_world::apotheosis::Rng::new(now_secs() ^ u64::from(drops.len() as u32).rotate_left(7) ^ context.origin[0].to_bits());
+                if f64::from(rng.next_f32()) < *chance {
+                    let original = drops.clone();
+                    for _ in 1..*rolls {
+                        drops.extend(original.iter().cloned());
+                    }
+                }
+            }
+        }
+    }
+    if effects.iter().any(|e| matches!(e, Effect::Telepathic)) {
+        let all = std::mem::take(drops);
+        for stack in all {
+            if let Some(rest) = game.native_give_stack(player, stack) {
+                drops.push(rest);
+            }
+        }
+    }
+}
+
+/// The tooltip lines for a stack's effects beyond attributes.
+fn effect_lines(stack: &ItemStack, lines: &mut Vec<(horizon_client::text::Text, u32)>) {
+    for effect in stack_effects(Some(stack)) {
+        let text: String = fx::describe(&effect).iter().map(render).collect();
+        lines.push((horizon_client::text::Text::legacy(&format!("§a{text}")), u32::MAX));
     }
 }

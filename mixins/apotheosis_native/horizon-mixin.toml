@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.5.0"
+version = "0.6.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the
@@ -33,6 +33,14 @@ name = "apotheosis_bosses"
 source = "bosses.rs"
 visibility = "pub"
 
+# What affixes and gems do beyond attributes, as `horizon_world::apotheosis_effects`.
+[[module]]
+id = "effects"
+file = "crates/horizon-world/src/lib.rs"
+name = "apotheosis_effects"
+source = "effects.rs"
+visibility = "pub"
+
 # The game's side: stacks' own modifiers on the player and in tooltips, socketing at the anvil, and spawning
 # bosses and elites.
 [[module]]
@@ -48,6 +56,9 @@ file = "crates/horizon-world/src/lib.rs"
 name = "apotheosis_data"
 source = "data.rs"
 visibility = "pub"
+
+[api]
+path = "api"
 
 [[injection]]
 id = "loot-table-load"
@@ -230,4 +241,100 @@ helper = "anvil_used.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
+]
+
+# ---- 0.6: effects beyond attributes ----
+
+[[injection]]
+id = "incoming"
+hook = "living_incoming_damage"
+hook_version = 1
+kind = "HEAD"
+helper = "incoming.rs"
+bindings = [
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "damage_type", ty = "&str", value = "damage_type" },
+  { name = "causing", ty = "i32", value = "causing" },
+  { name = "amount", ty = "&mut f32", value = "&mut *amount" },
+]
+
+[[injection]]
+id = "server-tick"
+hook = "server_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "server_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "hears-projectiles"
+hook = "hears_projectile_impacts"
+hook_version = 1
+kind = "HEAD"
+helper = "hears_projectiles.rs"
+bindings = [
+  { name = "hears", ty = "&mut bool", value = "&mut *hears" },
+]
+
+[[injection]]
+id = "projectile"
+hook = "projectile_impact"
+hook_version = 1
+kind = "HEAD"
+helper = "projectile.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "owner", ty = "u32", value = "owner" },
+  { name = "entity", ty = "Option<u32>", value = "entity" },
+]
+
+[[injection]]
+id = "destroy-block"
+hook = "destroy_block"
+hook_version = 1
+kind = "HEAD"
+helper = "destroy_block.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+]
+
+[[injection]]
+id = "loot-drops"
+hook = "loot_drops"
+hook_version = 1
+kind = "HEAD"
+helper = "loot_drops.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "context", ty = "&horizon_client::mod_api::NativeLootDrops<'_>", value = "context" },
+  { name = "drops", ty = "&mut Vec<ItemStack>", value = "&mut *drops" },
+]
+
+[[injection]]
+id = "enchantment-level"
+kind = "HEAD"
+cancellable = true
+target = "horizon_items::item_data::ItemStack::enchantment_level"
+helper = "enchantment_level.rs"
+bindings = [
+  { name = "stack", ty = "&ItemStack", value = "self" },
+  { name = "id", ty = "&str", value = "id" },
+]
+
+# The player's melee hit (asked only while a trait mod is loaded: `api` is one).
+[[injection]]
+id = "melee"
+hook = "living_incoming_damage_v2"
+hook_version = 1
+kind = "HEAD"
+helper = "melee.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "i32", value = "entity" },
+  { name = "weapon", ty = "Option<&ItemStack>", value = "weapon" },
+  { name = "amount", ty = "&mut f32", value = "&mut *amount" },
 ]

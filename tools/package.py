@@ -36,6 +36,9 @@ def main():
         add(z, "horizon-native.json", (ROOT / "horizon-native.json").read_bytes())
         for f in sorted(BUNDLE.glob("*.rs")) + [BUNDLE / "horizon-mixin.toml"]:
             add(z, f"mixins/apotheosis_native/{f.name}", f.read_bytes())
+        # The (empty) trait mod: some hook points are asked only while one is loaded.
+        for f in sorted(p for p in (BUNDLE / "api").rglob("*") if p.is_file() and "target" not in p.parts):
+            add(z, f"mixins/apotheosis_native/{f.relative_to(BUNDLE).as_posix()}", f.read_bytes())
         for name in ("LICENSE", "NOTICE-apotheosis.txt"):
             add(z, f"mixins/apotheosis_native/{name}", (ROOT / name).read_bytes())
     content = ROOT / "content/apotheosis"

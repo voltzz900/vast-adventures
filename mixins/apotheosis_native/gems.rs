@@ -29,6 +29,8 @@ struct Modifier {
 }
 
 struct Bonus {
+    typ: String,
+    raw: Value,
     key: String,
     types: Vec<String>,
     /// The bonus's modifiers on attributes the game has; empty when it has none (or isn't an attribute bonus).
@@ -40,9 +42,16 @@ impl Bonus {
     fn fits(&self, category: &str) -> bool {
         self.types.iter().any(|t| t == category || t == "*")
     }
-    /// `GemBonus.supports`: the first modifier has a value at that purity.
+    /// Whether this port applies the bonus: attributes the game has, or a ported effect.
+    fn works(&self) -> bool {
+        !self.mods.is_empty() || crate::apotheosis_effects::ported(&self.typ, &self.raw)
+    }
+    /// `GemBonus.supports`: the first modifier (or the bonus) has a value at that purity.
     fn supports(&self, purity: usize) -> bool {
-        self.mods.first().is_some_and(|m| m.values.contains_key(PURITIES[purity]))
+        match self.mods.first() {
+            Some(m) => m.values.contains_key(PURITIES[purity]),
+            None => self.works() && self.raw["values"].get(PURITIES[purity]).is_some(),
+        }
     }
 }
 
@@ -67,7 +76,15 @@ impl Gem {
     }
     /// Whether any of its bonuses works here.
     fn usable(&self) -> bool {
-        self.bonuses.iter().any(|b| !b.mods.is_empty())
+        self.bonuses.iter().any(Bonus::works)
+    }
+    /// The bonuses for an item's category that aren't attributes, as (type, the bonus's data).
+    pub fn raw_bonuses_for(&self, category: &str) -> Vec<(&str, &Value)> {
+        self.bonuses
+            .iter()
+            .filter(|b| b.fits(category) && b.mods.is_empty())
+            .map(|b| (b.typ.as_str(), &b.raw))
+            .collect()
     }
     fn bonus_for(&self, category: &str, purity: usize) -> Option<&Bonus> {
         self.bonuses.iter().find(|b| b.fits(category) && b.supports(purity))
@@ -129,6 +146,8 @@ fn data() -> &'static GemData {
                             _ => Vec::new(),
                         };
                         Bonus {
+                            typ: b["type"].as_str().unwrap_or_default().to_owned(),
+                            raw: b.clone(),
                             key: b["key"].as_str().unwrap_or("anything").to_owned(),
                             types: strings(b.get("types")),
                             mods,
@@ -250,6 +269,10 @@ fn number(value: f64) -> String {
 
 /// One bonus's effect at a purity: "+3.5 Attack Damage", "+15% Speed", joined by " / ".
 fn bonus_effect(bonus: &Bonus, purity: usize) -> Vec<Value> {
+    if bonus.mods.is_empty() {
+        let value = bonus.raw["values"].get(PURITIES[purity]).cloned().unwrap_or(Value::Null);
+        return crate::apotheosis_effects::describe_raw(&bonus.typ, &bonus.raw, &value);
+    }
     let mut parts = Vec::new();
     for (i, m) in bonus.mods.iter().enumerate() {
         let Some(v) = m.values.get(PURITIES[purity]).and_then(Value::as_f64) else { continue };

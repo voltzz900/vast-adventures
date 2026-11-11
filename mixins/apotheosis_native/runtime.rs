@@ -15,7 +15,7 @@ use std::sync::{OnceLock, RwLock};
 
 pub const ID: &str = "apotheosis_native";
 pub const NAME: &str = "Apotheosis";
-pub const VERSION: &str = "0.5.0";
+pub const VERSION: &str = "0.6.0";
 pub const DESCRIPTION: &str = "Rarities, affixes, sockets, gems, bosses and elites, as Apotheosis rolls them.";
 
 // ---- world tier ---------------------------------------------------------------
@@ -113,6 +113,10 @@ pub struct Rarity {
 
 pub struct Affix {
     pub id: String,
+    /// Apotheosis' affix type: `apotheosis:attribute`, `apotheosis:mob_effect`, `apotheosis:damage_reduction`...
+    pub typ: String,
+    /// The whole affix, for the types' own fields.
+    pub raw: Value,
     kind: String,
     exclusive: Vec<String>,
     weights: Value,
@@ -173,13 +177,15 @@ fn data() -> &'static Data {
                 list.iter()
                     .map(|a| Affix {
                         id: a["id"].as_str().unwrap_or_default().to_owned(),
+                        typ: a["type"].as_str().unwrap_or_default().to_owned(),
+                        raw: a.clone(),
                         kind: a["definition"]["affix_type"].as_str().unwrap_or_default().to_owned(),
                         exclusive: strings(a["definition"].get("exclusive_set")),
                         weights: a["definition"]["weights"].clone(),
                         attribute: a["attribute"].as_str().unwrap_or_default().to_owned(),
                         operation: a["operation"].as_str().unwrap_or("add_value").to_owned(),
                         values: a["values"].as_object().cloned().unwrap_or_default(),
-                        categories: strings(a.get("categories")),
+                        categories: strings(a.get("categories").or(a.get("types"))),
                     })
                     .collect()
             })
@@ -201,9 +207,18 @@ fn data() -> &'static Data {
     })
 }
 
-/// Whether the game has the affix's attribute: Apothic Attributes' and NeoForge's own are not in Horizon.
+/// An affix by its id.
+pub fn affix_named(id: &str) -> Option<&'static Affix> {
+    data().affixes.iter().find(|a| a.id == id)
+}
+
+/// Whether this port carries the affix: an attribute the game has (Apothic Attributes' and NeoForge's own are
+/// not in Horizon), or a type whose effect is ported.
 fn supported(affix: &Affix) -> bool {
-    affix.attribute.starts_with("minecraft:")
+    match affix.typ.as_str() {
+        "apotheosis:attribute" => affix.attribute.starts_with("minecraft:"),
+        typ => crate::apotheosis_effects::ported(typ, &affix.raw),
+    }
 }
 
 // ---- items --------------------------------------------------------------------
@@ -465,6 +480,35 @@ const NAMES: &[(&str, &str, &str)] = &[
     ("shield/attribute/ironforged", "Resilient", "of Iron"),
     ("shield/attribute/stalwart", "Unshakable", "of the Rock"),
     ("shield/attribute/steel_touched", "Tenacious", "of Steel"),
+    ("armor/dmg_reduction/blast_forged", "Blast-Forged", "of the Blast"),
+    ("armor/dmg_reduction/blockading", "Blockading", "of the Bastion"),
+    ("armor/dmg_reduction/deflective", "Deflective", "of Deflection"),
+    ("armor/dmg_reduction/feathery", "Feathery", "of the Fall"),
+    ("armor/dmg_reduction/grounded", "Grounded", "of the Storm"),
+    ("armor/dmg_reduction/runed", "Runed", "of Runes"),
+    ("armor/mob_effect/blinding", "Blinding", "of Darkness"),
+    ("armor/mob_effect/bolstering", "Bolstering", "of Endurance"),
+    ("armor/mob_effect/nimble", "Nimble", "of Flight"),
+    ("armor/mob_effect/revitalizing", "Revitalizing", "of Renewal"),
+    ("breaker/mob_effect/spelunkers", "Spelunking", "of the Caves"),
+    ("breaker/mob_effect/swift", "Hasty", "of Haste"),
+    ("breaker/enchantment/prosperous", "Prosperous", "of Plenty"),
+    ("breaker/effect/radial", "Sweeping", "of the Quarry"),
+    ("breaker/ability/supermassive", "Supermassive", "of the Mountain"),
+    ("generic/telepathic", "Telepathic", "of the Mind"),
+    ("melee/cleaving", "Cleaving", "of the Cleaver"),
+    ("melee/executing", "Executing", "of the Headsman"),
+    ("melee/festive", "Festive", "of the Feast"),
+    ("melee/thunderstruck", "Thunderstruck", "of Thunder"),
+    ("melee/mob_effect/elusive", "Elusive", "of the Breeze"),
+    ("melee/mob_effect/weakening", "Weakening", "of Frailty"),
+    ("ranged/enchantment/prosperous", "Prosperous", "of Spoils"),
+    ("ranged/mob_effect/blighted", "Blighted", "of Blight"),
+    ("ranged/mob_effect/deathbound", "Deathbound", "of the Grave"),
+    ("ranged/mob_effect/ensnaring", "Ensnaring", "of Snares"),
+    ("ranged/mob_effect/fleeting", "Fleeting", "of the Wind's Step"),
+    ("ranged/mob_effect/ivy_laced", "Ivy-Laced", "of Venom"),
+    ("ranged/mob_effect/shulkers", "Levitating", "of the Shulker"),
 ];
 
 /// This port's English rarity names, the fallbacks of `rarity.<id>`.
@@ -539,7 +583,7 @@ pub fn affix_modifiers(item: &str, custom: &Value) -> Vec<Value> {
     let d = data();
     let mut out = Vec::new();
     for (id, level) in a["affixes"].as_object().into_iter().flatten() {
-        let Some(affix) = d.affixes.iter().find(|x| &x.id == id) else { continue };
+        let Some(affix) = d.affixes.iter().find(|x| &x.id == id && x.typ == "apotheosis:attribute") else { continue };
         let level = level.as_f64().unwrap_or(0.0) as f32;
         let Some(amount) = affix.values.get(rarity).and_then(|v| step_value(v, level)) else { continue };
         let path = affix.id.split_once(':').map_or(affix.id.as_str(), |(_, p)| p);
@@ -580,6 +624,10 @@ pub fn patch(item: &str, rolled: &Rolled, current_modifiers: Option<&Value>) -> 
     let mut levels = Map::new();
     for &(i, level) in &rolled.affixes {
         let affix = &d.affixes[i];
+        levels.insert(affix.id.clone(), json!(level));
+        if affix.typ != "apotheosis:attribute" {
+            continue;
+        }
         let Some(amount) = affix.values.get(&rarity.id).and_then(|v| step_value(v, level)) else { continue };
         let path = affix.id.split_once(':').map_or(affix.id.as_str(), |(_, p)| p);
         modifiers.push(json!({
@@ -589,7 +637,6 @@ pub fn patch(item: &str, rolled: &Rolled, current_modifiers: Option<&Value>) -> 
             "operation": affix.operation,
             "slot": slot,
         }));
-        levels.insert(affix.id.clone(), json!(level));
     }
     let name = match rolled.affixes.as_slice() {
         [] => None,
@@ -883,7 +930,8 @@ mod tests {
             let p = patch("minecraft:diamond_sword", &rolled, None);
             let mods = p.modifiers.as_array().unwrap();
             assert_eq!(mods[0]["id"], "minecraft:base_attack_damage", "keeps the sword's own damage");
-            assert_eq!(mods.len(), 1 + rolled.affixes.len());
+            let attributes = rolled.affixes.iter().filter(|(i, _)| data().affixes[*i].typ == "apotheosis:attribute").count();
+            assert_eq!(mods.len(), 1 + attributes);
             assert_eq!(p.name.unwrap()["color"], "#5555FF");
         }
     }

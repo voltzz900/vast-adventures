@@ -57,9 +57,8 @@ def main():
             rarities[f"apotheosis:{name}"] = {k: value[k] for k in ("color", "weights", "rules", "sort_index") if k in value}
         elif kind == "rarity_override":
             overrides[value["category"]] = value["overrides"]
-        elif kind == "affixes" and value.get("type") == "apotheosis:attribute":
-            affixes.append({"id": f"apotheosis:{name}", **{k: value[k] for k in
-                            ("attribute", "operation", "values", "categories", "definition") if k in value}})
+        elif kind == "affixes":
+            affixes.append({"id": f"apotheosis:{name}", **value})
         elif kind == "gems":
             bonuses = []
             for b in value["bonuses"]:
@@ -72,10 +71,7 @@ def main():
                     types = ["*"] if isinstance(raw, dict) else [t.split(":")[-1] for t in raw]
                 else:
                     key, types = None, []
-                bonus = {"type": b["type"], "key": key, "types": types}
-                for k in ("attribute", "operation", "values", "modifiers", "desc"):
-                    if k in b:
-                        bonus[k] = b[k]
+                bonus = {**{k: v for k, v in b.items() if k != "gem_class"}, "key": key, "types": types}
                 bonuses.append(bonus)
             gems.append({"id": f"apotheosis:{name}", "weights": value["weights"], "constraints": value.get("constraints", {}),
                          "min_purity": value.get("min_purity", "cracked"), "unique": value.get("unique", False), "bonuses": bonuses})
@@ -111,7 +107,7 @@ def main():
         + const("RARITIES", rarities)
         + "\n/// Per loot category, the rules a rarity uses instead of its own.\n"
         + const("RARITY_OVERRIDES", overrides)
-        + "\n/// Attribute affixes: attribute, operation, values per rarity, categories and definition.\n"
+        + "\n/// Every affix as Apotheosis defines it: its type, definition, values per rarity and its own fields.\n"
         + const("AFFIXES", affixes)
         + "\n/// The items a chest's affix loot is drawn from, with their weights.\n"
         + const("LOOT_ENTRIES", entries)
@@ -128,7 +124,7 @@ def main():
         + const("GEAR_TAGS", gear_tags)
         + "\n/// Boss spawn chances per dimension and tier.\n"
         + const("SPAWN_RULES", spawn_rules))
-    print(f"{OUT}: {len(rarities)} rarities, {len(overrides)} overrides, {len(affixes)} attribute affixes, {len(entries)} loot entries, {len(gems)} gems, {len(invaders)} invaders, {len(elites)} elites, {len(gear_sets)} gear sets")
+    print(f"{OUT}: {len(rarities)} rarities, {len(overrides)} overrides, {len(affixes)} affixes, {len(entries)} loot entries, {len(gems)} gems, {len(invaders)} invaders, {len(elites)} elites, {len(gear_sets)} gear sets")
 
 
 if __name__ == "__main__":
