@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "content/apotheosis"
 RUNTIME = ROOT / "mixins/apotheosis_native/runtime.rs"
 DATA = ROOT / "mixins/apotheosis_native/data.rs"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -97,6 +97,74 @@ SHAPES = {
         ".......0........",
         "................",
     ],
+}
+
+SHAPES.update({
+    "pile": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        ".......00.......",
+        "......0650......",
+        ".....065440.....",
+        "....06564430....",
+        "...0654643320...",
+        "..065443362210..",
+        ".05443322221110.",
+        "..000000000000..",
+        "................",
+        "................",
+    ],
+    "scrap": [
+        "................",
+        "................",
+        "................",
+        "......000.......",
+        ".....0654000....",
+        "....065543650...",
+        "...0655443430...",
+        "...054432230....",
+        "..0654322110....",
+        "..0543210.000...",
+        "...03210.06540..",
+        "....000.0544320.",
+        "........0433210.",
+        ".........00000..",
+        "................",
+        "................",
+    ],
+    "cloth": [
+        "................",
+        "................",
+        "...0000000000...",
+        "..066655555540..",
+        "..065544444430..",
+        "..054433333320..",
+        "...0433322220...",
+        "...0544433330...",
+        "..06554444430...",
+        "..05443333320...",
+        "..04332222210...",
+        "...0322111110...",
+        "....00000000....",
+        "................",
+        "................",
+        "................",
+    ],
+})
+
+# Apotheosis' crafting materials: what salvaging gives and reforging and gem cutting cost. Shape, colour, English
+# and Portuguese names are this port's own.
+MATERIALS = {
+    "mysterious_scrap_metal": ("scrap", 0x9AA0A6, "Mysterious Scrap Metal", "Sucata Misteriosa"),
+    "timeworn_fabric": ("cloth", 0x8E6E4A, "Timeworn Fabric", "Tecido Gasto"),
+    "luminous_crystal_shard": ("shard", 0x7FD6F5, "Luminous Crystal Shard", "Fragmento de Cristal Luminoso"),
+    "arcane_sands": ("pile", 0xC77DFF, "Arcane Sands", "Areia Arcana"),
+    "godforged_pearl": ("round", 0xFFE7A8, "Godforged Pearl", "Pérola Forjada pelos Deuses"),
+    "gem_dust": ("pile", 0xD06AA8, "Gem Dust", "Pó de Gema"),
 }
 
 # Each gem's shape and base colour, picked by hand; English and Portuguese names are this port's own.
@@ -218,6 +286,8 @@ def lang():
     for key, e, p in (("undead_knight", "Undead Knight", "Cavaleiro Morto-Vivo"), ("honeyed_archer", "Honeyed Archer", "Arqueira do Mel"),
                       ("withering_archer", "Withering Archer", "Arqueiro Fenecido"), ("craig", "Craig", "Craig")):
         en[f"apotheosis.elite.{key}"], br[f"apotheosis.elite.{key}"] = e, p
+    for item, (_, _, e, p) in MATERIALS.items():
+        en[f"item.apotheosis.{item}"], br[f"item.apotheosis.{item}"] = e, p
     for gem, (_, _, e, p) in GEMS.items():
         en[f"item.apotheosis.gem_{gem}"] = f"Gem of {e}"
         br[f"item.apotheosis.gem_{gem}"] = f"Gema {p}"
@@ -238,8 +308,15 @@ def main():
                                                                "textures": {"layer0": f"apotheosis:item/{item}"}}
         files[f"assets/apotheosis/items/{item}.json"] = {"model": {"type": "minecraft:model", "model": f"apotheosis:item/{item}"}}
         files[f"assets/apotheosis/textures/item/{item}.png"] = png(SHAPES[shape], ramp(colour))
+    for item, (shape, colour, _, _) in MATERIALS.items():
+        files[f"data/apotheosis/horizon/item/{item}.json"] = {"template": "minecraft:amethyst_shard"}
+        files[f"assets/apotheosis/models/item/{item}.json"] = {"parent": "minecraft:item/generated",
+                                                               "textures": {"layer0": f"apotheosis:item/{item}"}}
+        files[f"assets/apotheosis/items/{item}.json"] = {"model": {"type": "minecraft:model", "model": f"apotheosis:item/{item}"}}
+        files[f"assets/apotheosis/textures/item/{item}.png"] = png(SHAPES[shape], ramp(colour))
     files["data/apotheosis/horizon/creative_tab/gems.json"] = {
-        "title": "Apotheosis Gems", "icon": "apotheosis:gem_ballast", "items": [f"apotheosis:gem_{g}" for g in GEMS]}
+        "title": "Apotheosis", "icon": "apotheosis:gem_ballast",
+        "items": [f"apotheosis:gem_{g}" for g in GEMS] + [f"apotheosis:{m}" for m in MATERIALS]}
     en, br = lang()
     files["assets/apotheosis/lang/en_us.json"] = dict(sorted(en.items()))
     files["assets/apotheosis/lang/pt_br.json"] = dict(sorted(br.items()))

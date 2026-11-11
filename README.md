@@ -51,6 +51,20 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 - **Elites**: some skeletons (the Undead Knight and the Honeyed Archer) and wither skeletons (the Withering
   Archer) spawn stronger, named, in their tier's gear, sometimes with one affix item that always drops.
 
+## 0.4: salvaging, reforging and gem cutting
+
+At the game's own stations, with Apotheosis' materials (items drawn for this port):
+
+- **Salvaging** (grindstone): an affix item alone salvages into one to four of its rarity's material:
+  Mysterious Scrap Metal (Common), Timeworn Fabric (Uncommon), Luminous Crystal Shard (Rare), Arcane Sands
+  (Epic), Godforged Pearl (Mythic). A gem salvages into Gem Dust, more the purer it is.
+- **Reforging** (anvil): an affix item on the left and its rarity's material on the right (1 to 3) reroll its
+  affixes at the same rarity, for 2 to 50 levels. Its sockets and gems stay.
+- **Gem cutting** (anvil): a gem and Gem Dust (1, 3, 5, 7 or 9) make it one purity better, for 3 to 15 levels.
+
+The result is worked out from the item itself, so it is the same on every look (and a reforged item rerolls
+differently next time). Apotheosis' sigils, which reforging and cutting also take there, aren't ported yet.
+
 ### Not yet
 
 - Affixes and gem bonuses on attributes Horizon doesn't have: crit chance, life steal, fire and cold damage,
@@ -58,8 +72,8 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
   (Earth, Ender Surge, Inferno, Mageslayer) don't drop yet; a gem goes only into an item it has a working bonus
   for.
 - The effect and ability affixes and gem bonuses (bleeding, executing, enchantments, durability...).
-- Removing gems and adding sockets (the sigils), gem cutting, the tier screen and its unlocks, and the
-  reforging, salvaging and augmenting tables.
+- The sigils (removing gems, adding sockets, malice and supremacy), the tier screen and its unlocks, and the
+  augmenting table.
 - For bosses and elites: mounts and riders, scale, armour and the Apothic attributes in their stats, the
   enchanting of their gear, the beam over a new boss, boss dungeons and rogue spawners, and the tier augments
   that toughen every monster.
@@ -79,7 +93,7 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 
 It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
 `apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
-`native_mobs_joined` (for bosses and elites).
+`native_mobs_joined` (for bosses and elites) and the grindstone's `grindstone_result` and `grindstone_accepts`.
 
 ## License
 

@@ -1,5 +1,5 @@
 {
-  "title": "Apotheosis Gems",
+  "title": "Apotheosis",
   "icon": "apotheosis:gem_ballast",
   "items": [
     "apotheosis:gem_ballast",
@@ -22,6 +22,12 @@
     "apotheosis:gem_mageslayer",
     "apotheosis:gem_blood_lord",
     "apotheosis:gem_inferno",
-    "apotheosis:gem_molten_breach"
+    "apotheosis:gem_molten_breach",
+    "apotheosis:mysterious_scrap_metal",
+    "apotheosis:timeworn_fabric",
+    "apotheosis:luminous_crystal_shard",
+    "apotheosis:arcane_sands",
+    "apotheosis:godforged_pearl",
+    "apotheosis:gem_dust"
   ]
 }

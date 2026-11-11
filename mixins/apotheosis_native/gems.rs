@@ -374,6 +374,100 @@ pub fn socket(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, gem
     Some(Socketed { custom, modifiers: Value::Array(list), lore })
 }
 
+// ---- salvaging, reforging and gem cutting -------------------------------------------
+
+/// The material each rarity salvages into and reforging costs, with (material, levels) per reforge.
+const MATERIALS: [(&str, &str, i32, i32); 5] = [
+    ("apotheosis:common", "apotheosis:mysterious_scrap_metal", 1, 2),
+    ("apotheosis:uncommon", "apotheosis:timeworn_fabric", 2, 5),
+    ("apotheosis:rare", "apotheosis:luminous_crystal_shard", 2, 15),
+    ("apotheosis:epic", "apotheosis:arcane_sands", 2, 30),
+    ("apotheosis:mythic", "apotheosis:godforged_pearl", 3, 50),
+];
+/// The gem dust a gem salvages into, (min, max) by purity.
+const DUST: [(i32, i32); 6] = [(1, 2), (1, 3), (2, 4), (3, 5), (4, 7), (5, 10)];
+pub const GEM_DUST: &str = "apotheosis:gem_dust";
+
+pub fn is_material(item: &str) -> bool {
+    MATERIALS.iter().any(|(_, m, _, _)| *m == item)
+}
+
+/// A roll seeded from the stack itself: the anvil and the grindstone work their result out again and again, on
+/// the server and in the window alike, so it must come out the same each time for the same inputs.
+fn stack_rng(item: &str, custom: &Value, what: &str) -> Rng {
+    Rng::new(core::hash(item) ^ core::hash(&custom.to_string()).rotate_left(21) ^ core::hash(what))
+}
+
+/// What an affix item or a gem salvages into at the grindstone (Apotheosis' salvaging recipes): its rarity's
+/// material, one to four, or gem dust by purity.
+pub fn salvage(item: &str, custom: &Value) -> Option<(String, i32)> {
+    let a = &custom["apotheosis"];
+    let mut rng = stack_rng(item, custom, "salvage");
+    if gem_for_item(item).is_some() {
+        let purity = a["purity"].as_str().and_then(purity_named).unwrap_or(0);
+        let (min, max) = DUST[purity];
+        return Some((GEM_DUST.to_owned(), min + rng.below((max - min + 1) as u64) as i32));
+    }
+    let rarity = a["rarity"].as_str()?;
+    let (_, material, _, _) = MATERIALS.iter().find(|(r, _, _, _)| *r == rarity)?;
+    Some(((*material).to_owned(), 1 + rng.below(4) as i32))
+}
+
+/// An item reforged: new affixes at the same rarity, its sockets (at least as many) and gems kept.
+pub struct Reforged {
+    pub name: Option<Value>,
+    pub custom: Value,
+    pub modifiers: Value,
+    pub lore: Value,
+    pub levels: i32,
+    pub material_cost: i32,
+}
+
+/// Reforging at the anvil (the reforging table's recipe): an affix item and its rarity's material, enough of it.
+pub fn reforge(item: &str, custom: &Value, modifiers: Option<&Value>, material: &str, count: i32) -> Option<Reforged> {
+    let category = core::category(item)?;
+    let a = &custom["apotheosis"];
+    let rarity_id = a["rarity"].as_str()?;
+    let (_, wanted, cost, levels) = MATERIALS.iter().find(|(r, _, _, _)| *r == rarity_id)?;
+    if *wanted != material || count < *cost {
+        return None;
+    }
+    let rarity = (0..5).find(|&i| core::rarity_id(i) == rarity_id)?;
+    let mut rng = stack_rng(item, custom, "reforge");
+    let rolled = core::roll(category, rarity, core::tier(), 0.0, &mut rng);
+    let patch = core::patch(item, &rolled, None);
+    let mut new = patch.custom;
+    let sockets = a["sockets"].as_u64().unwrap_or(0).max(u64::from(rolled.sockets));
+    if sockets > 0 {
+        new["apotheosis"]["sockets"] = json!(sockets);
+    }
+    if let Some(gems) = a["gems"].as_array() {
+        new["apotheosis"]["gems"] = Value::Array(gems.iter().take(sockets as usize).cloned().collect());
+    }
+    let mut list: Vec<Value> = modifiers.or(core::defaults_of(item).modifiers.as_ref()).map(core::modifier_list).unwrap_or_default();
+    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("apotheosis:")));
+    list.extend(core::own_modifiers(item, &new));
+    let lore = lore_for(&new);
+    Some(Reforged { name: patch.name, custom: new, modifiers: Value::Array(list), lore, levels: *levels, material_cost: *cost })
+}
+
+/// Gem cutting at the anvil: a gem and gem dust (1, 3, 5, 7 or 9 by purity) make it one purity better.
+pub fn cut_gem(gem_item: &str, gem_custom: &Value, right: &str, count: i32) -> Option<(MadeGem, i32, i32)> {
+    let gem = gem_for_item(gem_item)?;
+    if right != GEM_DUST {
+        return None;
+    }
+    let purity = gem_custom["apotheosis"]["purity"].as_str().and_then(purity_named).unwrap_or(0).max(gem.min_purity);
+    if purity + 1 >= PURITIES.len() {
+        return None;
+    }
+    let dust = 1 + 2 * purity as i32;
+    if count < dust {
+        return None;
+    }
+    Some((gem_stack(gem, purity + 1), 3 * (purity as i32 + 1), dust))
+}
+
 // ---- loot tables --------------------------------------------------------------
 
 /// Apotheosis' `gem_entity_drops` (0.5%) and `gem_entity_drops_from_real_players` (4%), together, for a monster a
@@ -498,6 +592,48 @@ mod tests {
         assert!(socket("minecraft:diamond_sword", None, None, &made.item, Some(gem_custom)).is_none());
         // not a gem
         assert!(socket("minecraft:diamond_sword", Some(&sword_with_sockets(1)), None, "minecraft:diamond", None).is_none());
+    }
+
+    #[test]
+    fn salvaging_gives_materials_and_dust() {
+        let custom = json!({"apotheosis": {"rarity": "apotheosis:epic", "affixes": {}}});
+        let (material, n) = salvage("minecraft:diamond_sword", &custom).unwrap();
+        assert_eq!(material, "apotheosis:arcane_sands");
+        assert!((1..=4).contains(&n));
+        assert_eq!(salvage("minecraft:diamond_sword", &custom), salvage("minecraft:diamond_sword", &custom), "same every time");
+        let gem = gem_stack(gem_named("apotheosis:core/ballast").unwrap(), 5);
+        let (dust, n) = salvage(&gem.item, &gem.components[0].1).unwrap();
+        assert_eq!(dust, GEM_DUST);
+        assert!((5..=10).contains(&n));
+        assert!(salvage("minecraft:diamond_sword", &json!({})).is_none());
+    }
+
+    #[test]
+    fn reforging_rerolls_and_keeps_gems() {
+        let custom = json!({"apotheosis": {"rarity": "apotheosis:rare", "sockets": 2,
+                            "affixes": {"apotheosis:melee/attribute/violent": 0.5},
+                            "gems": [{"gem": "apotheosis:core/ballast", "purity": "flawed"}]}});
+        assert!(reforge("minecraft:diamond_sword", &custom, None, "apotheosis:arcane_sands", 5).is_none(), "wrong material");
+        assert!(reforge("minecraft:diamond_sword", &custom, None, "apotheosis:luminous_crystal_shard", 1).is_none(), "too few");
+        let out = reforge("minecraft:diamond_sword", &custom, None, "apotheosis:luminous_crystal_shard", 2).unwrap();
+        assert_eq!(out.levels, 15);
+        assert_eq!(out.custom["apotheosis"]["rarity"], "apotheosis:rare");
+        assert_eq!(out.custom["apotheosis"]["gems"][0]["gem"], "apotheosis:core/ballast");
+        assert!(out.custom["apotheosis"]["sockets"].as_u64().unwrap() >= 2);
+        let ids: Vec<&str> = out.modifiers.as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.iter().any(|id| id.starts_with("apotheosis:gem/")), "{ids:?}");
+        let again = reforge("minecraft:diamond_sword", &out.custom, None, "apotheosis:luminous_crystal_shard", 2).unwrap();
+        assert_ne!(again.custom, out.custom, "a reforged item rerolls differently");
+    }
+
+    #[test]
+    fn gems_are_cut_with_dust() {
+        let gem = gem_stack(gem_named("apotheosis:core/ballast").unwrap(), 2);
+        assert!(cut_gem(&gem.item, &gem.components[0].1, GEM_DUST, 4).is_none(), "flawed needs 5 dust");
+        let (better, levels, dust) = cut_gem(&gem.item, &gem.components[0].1, GEM_DUST, 5).unwrap();
+        assert_eq!((better.purity, levels, dust), ("normal", 9, 5));
+        let perfect = gem_stack(gem_named("apotheosis:core/ballast").unwrap(), 5);
+        assert!(cut_gem(&perfect.item, &perfect.components[0].1, GEM_DUST, 64).is_none());
     }
 
     #[test]

@@ -88,6 +88,11 @@ pub(super) fn anvil(
     material_cost: &mut i32,
 ) {
     let Some(right) = right else { return };
+    let gems = horizon_world::apotheosis_gems::is_material(&right.item) || &*right.item == horizon_world::apotheosis_gems::GEM_DUST;
+    if gems {
+        craft(left, right, output, xp_cost, material_cost);
+        return;
+    }
     if !right.item.starts_with("apotheosis:gem_") {
         return;
     }
@@ -293,4 +298,41 @@ pub(super) fn mobs_joined(game: &mut super::Game<'_>, from: usize, natural: bool
             }
         }
     }
+}
+
+/// The anvil's reforging (an affix item and its rarity's material) and gem cutting (a gem and gem dust).
+fn craft(left: &ItemStack, right: &ItemStack, output: &mut Option<ItemStack>, xp_cost: &mut i32, material_cost: &mut i32) {
+    use horizon_world::apotheosis_gems as g;
+    let left_custom = component(left, "minecraft:custom_data").unwrap_or(Value::Null);
+    let count = right.count as i32;
+    if let Some((gem, levels, dust)) = g::cut_gem(&left.item, &left_custom, &right.item, count) {
+        let mut out = ItemStack::new(&gem.item, 1);
+        let data = out.data_mut();
+        data.set_loot_component("minecraft:custom_name", &gem.name);
+        for (id, value) in &gem.components {
+            data.set_loot_component(id, value);
+        }
+        out.tidy();
+        *output = Some(out);
+        *xp_cost = levels;
+        *material_cost = dust;
+        return;
+    }
+    let modifiers = component(left, "minecraft:attribute_modifiers");
+    let Some(r) = g::reforge(&left.item, &left_custom, modifiers.as_ref(), &right.item, count) else {
+        *output = None;
+        *xp_cost = 0;
+        return;
+    };
+    let mut out = left.clone();
+    out.count = 1;
+    let data = out.data_mut();
+    data.set_loot_component("minecraft:custom_name", r.name.as_ref().unwrap_or(&Value::Null));
+    data.set_loot_component("minecraft:custom_data", &r.custom);
+    data.set_loot_component("minecraft:attribute_modifiers", &r.modifiers);
+    data.set_loot_component("minecraft:lore", &r.lore);
+    out.tidy();
+    *output = Some(out);
+    *xp_cost = r.levels;
+    *material_cost = r.material_cost;
 }

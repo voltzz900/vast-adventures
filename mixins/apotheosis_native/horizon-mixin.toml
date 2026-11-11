@@ -1,6 +1,6 @@
 [mod]
 id = "apotheosis_native"
-version = "0.3.0"
+version = "0.4.0"
 priority = 100
 
 # The commit it is built for. Besides the native hook points it hooks the game's own `apply_equipment` and the
@@ -188,4 +188,26 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "from", ty = "usize", value = "from" },
   { name = "natural", ty = "bool", value = "natural" },
+]
+
+# Salvaging at the grindstone.
+[[injection]]
+id = "grindstone"
+kind = "HEAD"
+cancellable = true
+target = "horizon_client::stations::grindstone_result"
+helper = "grindstone.rs"
+bindings = [
+  { name = "input", ty = "Option<&ItemStack>", value = "input" },
+  { name = "additional", ty = "Option<&ItemStack>", value = "additional" },
+]
+
+[[injection]]
+id = "grindstone-accepts"
+kind = "HEAD"
+cancellable = true
+target = "horizon_client::stations::grindstone_accepts"
+helper = "grindstone_accepts.rs"
+bindings = [
+  { name = "stack", ty = "&ItemStack", value = "stack" },
 ]
