@@ -120,14 +120,18 @@ struct Items {
 
 static ITEMS: RwLock<Option<Items>> = RwLock::new(None);
 
-/// Learns every item's id, once a host can tell them (`client_setup`, `server_about_to_start`): the loot, attribute
-/// and enchantment hooks have only the key.
+/// Learns every item's id, once a host can tell them (`client_setup`, `server_about_to_start`, then each level tick
+/// until it has): the loot, attribute and enchantment hooks have only the key.
 pub fn learn_items(host: &dyn Host) {
     if ITEMS.read().is_ok_and(|i| i.is_some()) {
         return;
     }
+    let keys = host.item_keys();
+    if keys.is_empty() {
+        return;
+    }
     let mut items = Items::default();
-    for k in host.item_keys() {
+    for k in keys {
         let id = k.id(host);
         if !id.is_empty() {
             items.keys.insert(id.clone(), k);

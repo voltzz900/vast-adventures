@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// A player the hooks know: their Apothic attributes, worn armour's effects, last bow's effects and tier luck.
+#[derive(Clone)]
 struct Fighter {
     uuid: u128,
     entity: u32,
@@ -65,11 +66,22 @@ enum Pending {
     Heal { entity: u32, amount: f32 },
 }
 
-static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+impl Pending {
+    /// The entity it is done to (or beside): it is done in that entity's level.
+    fn entity(&self) -> u32 {
+        match self {
+            Self::Effect { entity, .. } | Self::Hurt { entity, .. } | Self::Heal { entity, .. } => *entity,
+            Self::Bolt { near, .. } => *near,
+        }
+    }
+}
+
+/// What waits for the world, with the server ticks it has waited.
+static PENDING: Mutex<Vec<(Pending, u8)>> = Mutex::new(Vec::new());
 
 fn queue(items: impl IntoIterator<Item = Pending>) {
     if let Ok(mut pending) = PENDING.lock() {
-        pending.extend(items);
+        pending.extend(items.into_iter().map(|p| (p, 0)));
     }
 }
 
@@ -132,14 +144,21 @@ fn tier_luck_id() -> Option<Identifier> {
     Identifier::parse("vastadventures:tier/luck").ok()
 }
 
-/// Reads each tracked player's attributes and worn effects, and keeps their tier luck (Apotheosis' tier augments).
+/// Reads the attributes and worn effects of each tracked player in the level in place, and keeps their tier luck
+/// (Apotheosis' tier augments).
 fn refresh(host: &mut dyn ServerHost) {
     let uuids = PLAYERS.lock().map(|p| p.clone()).unwrap_or_default();
     let old = FIGHTERS.lock().map(|mut f| std::mem::take(&mut *f)).unwrap_or_default();
     let luck = [0.0, 0.2, 0.3, 0.5, 1.0][loot::tier()];
+    let dimension = host.dimension();
     let mut fresh = Vec::new();
     for uuid in uuids {
         let Some(player) = host.player(uuid) else { continue };
+        if player.dimension(&*host).is_none_or(|d| d.to_string() != dimension) {
+            // Another level's: kept as it was read there.
+            fresh.extend(old.iter().filter(|f| f.uuid == uuid).map(Fighter::clone));
+            continue;
+        }
         let entity = player.entity();
         let Some(living) = host.living(entity) else { continue };
         let stats = APOTHIC.iter().map(|&(a, b)| (a, living.attribute_value(&*host, a).unwrap_or(b))).collect();
@@ -173,18 +192,35 @@ fn add_effect(host: &mut dyn ServerHost, entity: u32, effect: &str, amplifier: i
     living.add_effect(host, &ActiveEffect::new(key, duration, amplifier.clamp(0, 255), false, true, true));
 }
 
-pub fn server_tick(host: &mut dyn ServerHost) {
-    if TICKS.fetch_add(1, Ordering::Relaxed) % 5 == 0 {
-        refresh(host);
-    }
+/// A server tick starts: the last tick's blows are over, and what no level could do in a whole tick is dropped.
+pub fn tick_start() {
+    TICKS.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut melee) = MELEE.lock() {
         melee.clear();
     }
     if let Ok(mut hits) = ARROW_HITS.lock() {
         hits.clear();
     }
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.retain_mut(|(_, age)| {
+            *age += 1;
+            *age <= 2
+        });
+    }
+}
+
+/// The level in place ticks: its players are read now and then, and what waits for its entities is done.
+pub fn level_tick(host: &mut dyn ServerHost) {
+    if TICKS.load(Ordering::Relaxed) % 5 == 0 {
+        refresh(host);
+    }
     let pending = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
-    for p in pending {
+    let mut later = Vec::new();
+    for (p, age) in pending {
+        if host.entity(p.entity()).is_none() {
+            later.push((p, age));
+            continue;
+        }
         match p {
             Pending::Effect { entity, effect, amplifier, duration } => add_effect(host, entity, &effect, amplifier, duration),
             Pending::Hurt { entity, amount, damage_type, causing } => {
@@ -204,6 +240,9 @@ pub fn server_tick(host: &mut dyn ServerHost) {
                 }
             }
         }
+    }
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.extend(later);
     }
 }
 

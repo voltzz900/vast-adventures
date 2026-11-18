@@ -24,7 +24,7 @@ use mod_api::{
     ClientSetupEvent, DataLoadContext, EntityJoinLevelEvent, EquipmentSlotGroup, FinalizeSpawnEvent, Flow,
     GetEnchantmentLevelEvent, GrindstonePlaceEvent, HearsProjectileImpactsEvent, Host, HostSide, Hooks, Identifier,
     ItemAttributeModifierEvent, ItemPart, ItemTooltipEvent, LevelHost, LevelRandomHost, LivingDamagePostEvent,
-    LivingEquipmentChangeEvent, LivingHealEvent, LivingIncomingDamageEvent, LootConditionEvent, LootDropsEvent, LootFunctionEvent,
+    LivingEquipmentChangeEvent, LivingHealEvent, LevelTickPreEvent, LivingIncomingDamageEvent, LootConditionEvent, LootDropsEvent, LootFunctionEvent,
     LootTableLoadEvent, LoopContext, ModifyDefaultComponentsEvent, PlayerDestroyedBlockEvent, PlayerLoggedInEvent,
     PlayerLoggedOutEvent, ProjectileImpactEvent, Registrar, RegisterCommandsEvent, RegistrationContext,
     RunModCommandEvent, Sentiment, ServerAboutToStartEvent, ServerHost, ServerStartedEvent, ServerStoppedEvent,
@@ -189,9 +189,9 @@ impl Hooks for VastAdventures {
         Flow::Continue
     }
 
-    fn entity_join_level(&self, _host: &mut dyn ServerHost, event: &mut EntityJoinLevelEvent<'_>) -> Flow {
+    fn entity_join_level(&self, host: &mut dyn ServerHost, event: &mut EntityJoinLevelEvent<'_>) -> Flow {
         if !event.loaded_from_disk {
-            spawns::joined(event.entity, event.dimension, event.kind, event.pos);
+            spawns::joined(host, event.entity, event.dimension, event.kind, event.pos);
         }
         Flow::Continue
     }
@@ -204,10 +204,19 @@ impl Hooks for VastAdventures {
         spawns::run_command(host, event.source, event.command)
     }
 
-    fn server_tick(&self, host: &mut dyn ServerHost, event: &mut ServerTickEvent<'_>) {
+    fn server_tick(&self, _host: &mut dyn ServerHost, event: &mut ServerTickEvent<'_>) {
         if matches!(event.phase, ServerTickPhase::ServerTickStart { .. }) {
-            spawns::server_tick(host);
-            combat::server_tick(host);
+            spawns::tick_start();
+            combat::tick_start();
+        }
+    }
+
+    /// Entities are reached in the level in place: what waits for the world is done in each level's tick.
+    fn level_tick_pre(&self, host: HostSide, _event: &mut LevelTickPreEvent) {
+        if let HostSide::Server(host) = host {
+            nbt::learn_items(&*host);
+            spawns::level_tick(host);
+            combat::level_tick(host);
         }
     }
 

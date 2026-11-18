@@ -23,8 +23,17 @@ const BOSS_SPAWNER_TAG: &str = "vastadventures.boss_spawner";
 const BOSS_COOLDOWN_SECS: u64 = 180;
 static LAST_BOSS: AtomicU64 = AtomicU64::new(0);
 
-/// Mobs that joined since the last tick: (entity, dimension, kind, position).
-static JOINED: Mutex<Vec<(u32, String, String, [f64; 3])>> = Mutex::new(Vec::new());
+/// A marked mob that joined, for its level's next tick.
+struct Joined {
+    entity: u32,
+    dimension: String,
+    kind: String,
+    pos: [f64; 3],
+    spawner: bool,
+    age: u8,
+}
+
+static JOINED: Mutex<Vec<Joined>> = Mutex::new(Vec::new());
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -42,23 +51,45 @@ pub fn finalize_spawn(_host: &dyn Host, event: &mut FinalizeSpawnEvent<'_>) {
     }
 }
 
-/// A mob joined a level (not loaded from disk): looked at next tick.
-pub fn joined(entity: u32, dimension: &str, kind: &str, pos: [f64; 3]) {
-    if let Ok(mut joined) = JOINED.lock() {
-        joined.push((entity, dimension.to_owned(), kind.to_owned(), pos));
+/// A mob joined a level (not loaded from disk): a marked one is looked at in its level's next tick.
+pub fn joined(host: &mut dyn ServerHost, entity: u32, dimension: &str, kind: &str, pos: [f64; 3]) {
+    let Some(tags) = host.entity(entity).and_then(|e| e.tags(&*host)) else { return };
+    let spawner = tags.iter().any(|t| t == BOSS_SPAWNER_TAG);
+    if (spawner || tags.iter().any(|t| t == NATURAL_TAG))
+        && let Ok(mut joined) = JOINED.lock()
+    {
+        joined.push(Joined { entity, dimension: dimension.to_owned(), kind: kind.to_owned(), pos, spawner, age: 0 });
     }
 }
 
-pub fn server_tick(host: &mut dyn ServerHost) {
-    let joined = JOINED.lock().map(|mut j| std::mem::take(&mut *j)).unwrap_or_default();
-    for (id, dimension, kind, pos) in joined {
-        let Some(entity) = host.entity(id) else { continue };
-        let tags = entity.tags(&*host).unwrap_or_default();
-        if tags.iter().any(|t| t == BOSS_SPAWNER_TAG) {
-            boss_spawner(host, entity, &dimension, pos);
-        } else if tags.iter().any(|t| t == NATURAL_TAG) {
+/// A server tick starts: marked mobs no level took in a whole tick are left as they are.
+pub fn tick_start() {
+    if let Ok(mut joined) = JOINED.lock() {
+        joined.retain_mut(|j| {
+            j.age += 1;
+            j.age <= 2
+        });
+    }
+}
+
+/// The level in place ticks: its marked mobs become bosses or elites.
+pub fn level_tick(host: &mut dyn ServerHost) {
+    let dimension = host.dimension();
+    let mine: Vec<Joined> = match JOINED.lock() {
+        Ok(mut joined) => {
+            let (mine, rest) = std::mem::take(&mut *joined).into_iter().partition(|j| j.dimension == dimension);
+            *joined = rest;
+            mine
+        }
+        Err(_) => return,
+    };
+    for j in mine {
+        let Some(entity) = host.entity(j.entity) else { continue };
+        if j.spawner {
+            boss_spawner(host, entity, &j.dimension, j.pos);
+        } else {
             entity.remove_tag(host, NATURAL_TAG);
-            natural_monster(host, entity, &dimension, &kind, pos);
+            natural_monster(host, entity, &j.dimension, &j.kind, j.pos);
         }
     }
 }
