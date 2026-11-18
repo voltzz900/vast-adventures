@@ -1,6 +1,6 @@
 # Vast Adventures
 
-A native mod and a content mod for [Horizon](https://github.com/horizon-rust/horizon): loot with rarities and
+A native mod for [Horizon](https://github.com/horizon-rust/horizon): loot with rarities and
 affixes, gems and sockets, bosses, elites, rogue spawners and boss dungeons. It is built from the MIT code and data
 of [Apotheosis](https://github.com/Shadows-of-Fire/Apotheosis)' adventure module (by Shadows_of_Fire), with names,
 words and art of its own. Until 0.8 it was called "Apotheosis for Horizon".
@@ -127,6 +127,15 @@ The port takes a name of its own. Its mods are now `vastadventures_native` and `
 materials, seals, gems and elites have names of their own. The second kind of boss dungeon is a deepslate hall of
 this port's own. Items and worlds from 0.8 and before carry the old ids.
 
+## 0.10: one mod on Horizon's mod API
+
+The native mod and the content mod are one package, `vastadventures`, on Horizon's mod API (hooks, Parts and the
+Host) instead of mixins on the game's code. A stack's affixes and gems become modifiers wherever the game asks for
+a stack's modifiers (equipment, tooltip, attribute sync), worked out from its `custom_data`, so items from 0.9 keep
+working. The Apothic attributes are the mod's own attributes on every player, shown in tooltips as the game's are.
+They now work for every player of a server, not only for the single player. Bosses get every attribute their stats
+roll, not only the four Horizon read from mob data.
+
 ## Not yet
 
 - The Apothic attributes still missing: overheal, protection pierce and shred, arrow velocity, cooldown
@@ -146,24 +155,20 @@ this port's own. Items and worlds from 0.8 and before carry the old ids.
 
 ## Install
 
-- **The native mod:** `vastadventures_native-<version>.hnmod`. Install it, then build natives in the launcher.
-- **The content mod:** `vastadventures-<version>.hmod`, with the gem items and the names in English and Brazilian
-  Portuguese. Install both.
+- `vastadventures-<version>.hmod`: one native mod with the gem items, the dungeons and the names in English and
+  Brazilian Portuguese. Install it, then build natives in the launcher. From 0.9, remove `vastadventures_native`.
 
 ## Building
 
-- `tools/gen_data.py <Apotheosis jar>` regenerates `mixins/vastadventures_native/data.rs` from Apotheosis' data files.
-- `tools/build_content.py` builds `content/vastadventures` (gem items, sprites, lang, and with `tools/build_worldgen.py`
-  the rogue spawners and boss dungeons, from Apotheosis' data in `vendor/vastadventures`).
-- `cargo test` runs the tests: `src/lib.rs` builds the injected modules as an ordinary crate.
-- `tools/package.py` packs both files into `dist/`.
+- `tools/gen_data.py <Apotheosis jar>` regenerates `mod/src/data.rs` from Apotheosis' data files.
+- `tools/build_content.py` builds `mod/assets` and `mod/data` (gem items, sprites, lang, and with
+  `tools/build_worldgen.py` the rogue spawners and boss dungeons, from Apotheosis' data in `vendor/apotheosis`), and
+  `mod/horizon-mod.toml`.
+- In `mod/` (with the SDK at `mod/.horizon/sdk/api`): `cargo check` and `cargo test` (the rolling, gems, bosses and
+  effects are plain Rust with their tests).
+- `tools/package.py` packs `dist/vastadventures-<version>.hmod` with `cargo horizon-mod build`.
 
-It is pinned to Horizon `fdc87ae` (Nightly 2026-11-08): besides the native hook points it hooks the game's own
-`apply_enchantment_attributes` (for the stacks' modifiers), the anvil's `native_anvil_update` and
-`native_mobs_joined` (for bosses and elites; the boss spawner's mob is found in the server tick), the grindstone's `grindstone_result` and `grindstone_accepts`,
-the anvil's `anvil_take` and `anvil_used` (for seals) and `ItemStack::enchantment_level` (for enchantment bonuses).
-Its `api` folder is an empty trait mod: the game asks some hook points, the player's melee hit among them, only
-while a trait mod is loaded.
+It is built for Horizon `702ab1e` on the mod API, with no mixins.
 
 ## License
 

@@ -1,2 +1,8 @@
-target/
-dist/
+/target
+/dist
+__pycache__/
+/mod/.horizon
+/mod/target
+/mod/LICENSE
+/mod/NOTICE-apotheosis.txt
+/mod/Cargo.lock

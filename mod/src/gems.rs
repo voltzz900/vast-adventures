@@ -1,13 +1,11 @@
-// Apotheosis for Horizon: gems and sockets (slice 0.2).
-//
-// Injected into horizon-world as `pub mod vastadventures_gems`, beside `vastadventures`. Gems drop from monsters a player
-// kills and turn up in chests (Apotheosis' `gems` loot modifiers), each at a purity rolled by the world tier; an
-// affix item has sockets from its rarity's `socket` rule, and an anvil puts a gem into a free socket, adding the
-// gem's bonus for that kind of item as attribute modifiers. Only bonuses on attributes the game has
-// (`minecraft:...`) are carried: a gem drops only if it has one, and goes only into an item it has one for.
+//! Gems and sockets. Gems drop from monsters a player kills and turn up in chests (Apotheosis' `gems` loot
+//! modifiers), each at a purity rolled by the world tier; an affix item has sockets from its rarity's `socket` rule,
+//! and an anvil puts a gem into a free socket, adding the gem's bonus for that kind of item. Only bonuses this port
+//! carries out count: a gem drops only if it has one, and goes only into an item it has one for. Salvaging,
+//! reforging, gem cutting and the seals are here too.
 
-use crate::vastadventures::{self as core, Rng};
-use serde_json::{Map, Value, json};
+use crate::loot::{self as core, Rng};
+use mod_api::serde_json::{Map, Value, json};
 use std::sync::OnceLock;
 
 /// Apotheosis' purities, lowest first, with their colours (perfect's rainbow shown as gold).
@@ -44,7 +42,7 @@ impl Bonus {
     }
     /// Whether this port applies the bonus: attributes the game has, or a ported effect.
     fn works(&self) -> bool {
-        !self.mods.is_empty() || crate::vastadventures_effects::ported(&self.typ, &self.raw)
+        !self.mods.is_empty() || crate::effects::ported(&self.typ, &self.raw)
     }
     /// `GemBonus.supports`: the first modifier (or the bonus) has a value at that purity.
     fn supports(&self, purity: usize) -> bool {
@@ -105,7 +103,7 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 
 fn modifier(m: &Value) -> Option<Modifier> {
     let attribute = m["attribute"].as_str()?;
-    (attribute.starts_with("minecraft:") || crate::vastadventures_effects::apothic(attribute)).then(|| Modifier {
+    (attribute.starts_with("minecraft:") || crate::effects::apothic(attribute)).then(|| Modifier {
         attribute: attribute.to_owned(),
         operation: m["operation"].as_str().unwrap_or("add_value").to_owned(),
         values: m["values"].as_object().cloned().unwrap_or_default(),
@@ -115,9 +113,9 @@ fn modifier(m: &Value) -> Option<Modifier> {
 fn data() -> &'static GemData {
     static DATA: OnceLock<GemData> = OnceLock::new();
     DATA.get_or_init(|| {
-        use crate::vastadventures_data as d;
-        let gems: Value = serde_json::from_str(d::GEMS).expect("Vast Adventures: embedded gems read");
-        let purity: Value = serde_json::from_str(d::PURITY_WEIGHTS).expect("Vast Adventures: embedded purities read");
+        use crate::data as d;
+        let gems: Value = mod_api::serde_json::from_str(d::GEMS).expect("Vast Adventures: embedded gems read");
+        let purity: Value = mod_api::serde_json::from_str(d::PURITY_WEIGHTS).expect("Vast Adventures: embedded purities read");
         let gems = gems
             .as_array()
             .into_iter()
@@ -169,9 +167,9 @@ pub fn gem_for_item(item: &str) -> Option<&'static Gem> {
     data().gems.iter().find(|g| g.item() == item)
 }
 
-/// Every gem's item id and its own English name, for the content mod's lang file and tests.
-pub fn gem_items() -> Vec<(String, String)> {
-    data().gems.iter().map(|g| (g.item(), english(g))).collect()
+/// Every gem's item id.
+pub fn gem_items() -> Vec<String> {
+    data().gems.iter().map(Gem::item).collect()
 }
 
 fn english(gem: &Gem) -> String {
@@ -210,10 +208,9 @@ pub fn random_purity(tier: usize, luck: f32, rng: &mut Rng) -> usize {
     core::pick(rng, &pool).unwrap_or_else(|| rng.below(PURITIES.len() as u64) as usize)
 }
 
-/// A gem as an item: its id, purity, name and components.
+/// A gem as an item: its id, name and components (its purity is in its `custom_data`).
 pub struct MadeGem {
     pub item: String,
-    pub purity: &'static str,
     pub name: Value,
     pub components: Vec<(String, Value)>,
 }
@@ -244,7 +241,7 @@ pub fn gem_stack(gem: &Gem, purity: usize) -> MadeGem {
     if purity == PURITIES.len() - 1 {
         components.push(("minecraft:enchantment_glint_override".to_owned(), json!(true)));
     }
-    MadeGem { item: gem.item(), purity: PURITIES[purity], name: gem_name(gem, purity), components }
+    MadeGem { item: gem.item(), name: gem_name(gem, purity), components }
 }
 
 // ---- text ---------------------------------------------------------------------
@@ -271,7 +268,7 @@ fn number(value: f64) -> String {
 fn bonus_effect(bonus: &Bonus, purity: usize) -> Vec<Value> {
     if bonus.mods.is_empty() {
         let value = bonus.raw["values"].get(PURITIES[purity]).cloned().unwrap_or(Value::Null);
-        return crate::vastadventures_effects::describe_raw(&bonus.typ, &bonus.raw, &value);
+        return crate::effects::describe_raw(&bonus.typ, &bonus.raw, &value);
     }
     let mut parts = Vec::new();
     for (i, m) in bonus.mods.iter().enumerate() {
@@ -279,8 +276,8 @@ fn bonus_effect(bonus: &Bonus, purity: usize) -> Vec<Value> {
         if i > 0 {
             parts.push(json!({"text": " / "}));
         }
-        if crate::vastadventures_effects::apothic(&m.attribute) {
-            let (amount, key) = crate::vastadventures_effects::apothic_text(&m.attribute, v, &m.operation);
+        if crate::effects::apothic(&m.attribute) {
+            let (amount, key) = crate::effects::apothic_text(&m.attribute, v, &m.operation);
             parts.push(json!({"text": format!("{amount} ")}));
             parts.push(json!({"translate": key}));
             continue;
@@ -364,17 +361,16 @@ pub fn gem_modifiers(item: &str, custom: &Value) -> Vec<Value> {
 
 // ---- socketing ----------------------------------------------------------------
 
-/// An item with one more gem: its new `custom_data`, `attribute_modifiers` and `lore`.
+/// An item with one more gem: its new `custom_data` and `lore`.
 pub struct Socketed {
     pub custom: Value,
-    pub modifiers: Value,
     pub lore: Value,
 }
 
-/// `SocketHelper.socketGem`, at the anvil: `item` (its `custom_data` and `attribute_modifiers`) takes the gem
+/// `SocketHelper.socketGem`, at the anvil: `item` (its `custom_data`) takes the gem
 /// `gem_item` (its `custom_data`) into its first free socket, when it has one, the gem has a bonus that works for
 /// this kind of item at its purity, and a unique gem isn't in it already.
-pub fn socket(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, gem_item: &str, gem_custom: Option<&Value>) -> Option<Socketed> {
+pub fn socket(item: &str, custom: Option<&Value>, gem_item: &str, gem_custom: Option<&Value>) -> Option<Socketed> {
     let category = core::category(item)?;
     let gem = gem_for_item(gem_item)?;
     let stored = gem_custom.and_then(|c| c["vastadventures"]["purity"].as_str()).and_then(purity_named).unwrap_or(0);
@@ -392,15 +388,8 @@ pub fn socket(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, gem
     gem.bonus_for(category, purity)?;
     gems.push(json!({"gem": gem.id, "purity": PURITIES[purity]}));
     custom["vastadventures"]["gems"] = Value::Array(gems);
-    // The item kind's modifiers (or what the stack had, outside this mod's), then the affixes' and gems' again.
-    let mut list: Vec<Value> = modifiers
-        .or(core::defaults_of(item).modifiers.as_ref())
-        .map(core::modifier_list)
-        .unwrap_or_default();
-    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("vastadventures:")));
-    list.extend(core::own_modifiers(item, &custom));
     let lore = lore_for(&custom);
-    Some(Socketed { custom, modifiers: Value::Array(list), lore })
+    Some(Socketed { custom, lore })
 }
 
 // ---- salvaging, reforging and gem cutting -------------------------------------------
@@ -446,14 +435,13 @@ pub fn salvage(item: &str, custom: &Value) -> Option<(String, i32)> {
 pub struct Reforged {
     pub name: Option<Value>,
     pub custom: Value,
-    pub modifiers: Value,
     pub lore: Value,
     pub levels: i32,
     pub material_cost: i32,
 }
 
 /// Reforging at the anvil (the reforging table's recipe): an affix item and its rarity's material, enough of it.
-pub fn reforge(item: &str, custom: &Value, modifiers: Option<&Value>, material: &str, count: i32) -> Option<Reforged> {
+pub fn reforge(item: &str, custom: &Value, material: &str, count: i32) -> Option<Reforged> {
     let category = core::category(item)?;
     let a = &custom["vastadventures"];
     let rarity_id = a["rarity"].as_str()?;
@@ -464,7 +452,7 @@ pub fn reforge(item: &str, custom: &Value, modifiers: Option<&Value>, material: 
     let rarity = (0..5).find(|&i| core::rarity_id(i) == rarity_id)?;
     let mut rng = stack_rng(item, custom, "reforge");
     let rolled = core::roll(category, rarity, core::tier(), 0.0, &mut rng);
-    let patch = core::patch(item, &rolled, None);
+    let patch = core::patch(item, &rolled);
     let mut new = patch.custom;
     let sockets = a["sockets"].as_u64().unwrap_or(0).max(u64::from(rolled.sockets));
     if sockets > 0 {
@@ -473,11 +461,8 @@ pub fn reforge(item: &str, custom: &Value, modifiers: Option<&Value>, material: 
     if let Some(gems) = a["gems"].as_array() {
         new["vastadventures"]["gems"] = Value::Array(gems.iter().take(sockets as usize).cloned().collect());
     }
-    let mut list: Vec<Value> = modifiers.or(core::defaults_of(item).modifiers.as_ref()).map(core::modifier_list).unwrap_or_default();
-    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("vastadventures:")));
-    list.extend(core::own_modifiers(item, &new));
     let lore = lore_for(&new);
-    Some(Reforged { name: patch.name, custom: new, modifiers: Value::Array(list), lore, levels: *levels, material_cost: *cost })
+    Some(Reforged { name: patch.name, custom: new, lore, levels: *levels, material_cost: *cost })
 }
 
 /// Gem cutting at the anvil: a gem and gem dust (1, 3, 5, 7 or 9 by purity) make it one purity better.
@@ -512,14 +497,13 @@ pub fn is_sigil(item: &str) -> bool {
 /// An item after a sigil: its new data, and whether its affix name goes.
 pub struct Sigiled {
     pub custom: Value,
-    pub modifiers: Value,
     pub lore: Value,
     pub clear_name: bool,
 }
 
 /// A sigil on an item at the anvil: Socketing adds a socket (up to two), Withdrawal takes every gem out,
 /// Unnaming takes the affix name off. None when it does nothing to this item.
-pub fn sigil(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, sigil: &str) -> Option<Sigiled> {
+pub fn sigil(item: &str, custom: Option<&Value>, sigil: &str) -> Option<Sigiled> {
     core::category(item)?;
     let mut custom = custom.cloned().filter(|c| c.get("vastadventures").is_some()).unwrap_or_else(|| json!({"vastadventures": {}}));
     let a = custom["vastadventures"].clone();
@@ -546,30 +530,8 @@ pub fn sigil(item: &str, custom: Option<&Value>, modifiers: Option<&Value>, sigi
         }
         _ => return None,
     }
-    let mut list: Vec<Value> = modifiers.or(core::defaults_of(item).modifiers.as_ref()).map(core::modifier_list).unwrap_or_default();
-    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("vastadventures:")));
-    list.extend(core::own_modifiers(item, &custom));
     let lore = lore_for(&custom);
-    Some(Sigiled { custom, modifiers: Value::Array(list), lore, clear_name })
-}
-
-/// Gems a Sigil of Withdrawal took out, waiting to be given to the player once the anvil's take is done.
-static WITHDRAWN: std::sync::Mutex<Vec<MadeGem>> = std::sync::Mutex::new(Vec::new());
-
-/// At the anvil's take, before its inputs are used up: the gems of an item withdrawn with a sigil.
-pub fn queue_withdrawn(left_item: &str, left_custom: Option<&Value>, right_item: &str) {
-    if right_item != SEAL_OF_EXTRACTION || core::category(left_item).is_none() {
-        return;
-    }
-    let gems = left_custom.map(socketed_gems).unwrap_or_default();
-    if let Ok(mut queue) = WITHDRAWN.lock() {
-        queue.extend(gems);
-    }
-}
-
-/// The withdrawn gems waiting for the player, emptying the queue.
-pub fn take_withdrawn() -> Vec<MadeGem> {
-    WITHDRAWN.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+    Some(Sigiled { custom, lore, clear_name })
 }
 
 /// The gems socketed in an item, as items, for a Sigil of Withdrawal to give back.
@@ -660,7 +622,7 @@ mod tests {
             let g = gem_for_item(&gem.item).unwrap();
             assert!(g.usable());
             assert!(g.dimensions.is_empty() || g.dimensions.iter().any(|d| d == "minecraft:overworld"), "{}", g.id);
-            assert!(purity_named(gem.purity).unwrap() >= g.min_purity);
+            assert!(purity_named(gem.components[0].1["vastadventures"]["purity"].as_str().unwrap()).unwrap() >= g.min_purity);
         }
     }
 
@@ -669,28 +631,27 @@ mod tests {
         let ballast = gem_named("vastadventures:core/ballast").unwrap();
         let made = gem_stack(ballast, 3);
         let gem_custom = &made.components[0].1;
-        let base = json!([{"type": "minecraft:attack_damage", "id": "minecraft:base_attack_damage", "amount": 6.0, "operation": "add_value", "slot": "mainhand"}]);
-        let out = socket("minecraft:diamond_sword", Some(&sword_with_sockets(2)), Some(&base), &made.item, Some(gem_custom)).unwrap();
-        let mods = out.modifiers.as_array().unwrap();
-        assert_eq!(mods.len(), 2);
-        assert_eq!(mods[1]["id"], "vastadventures:gem/core/ballast_mainhand_0");
-        assert_eq!(mods[1]["amount"], 5.0);
+        let out = socket("minecraft:diamond_sword", Some(&sword_with_sockets(2)), &made.item, Some(gem_custom)).unwrap();
+        let mods = core::own_modifiers("minecraft:diamond_sword", &out.custom);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0]["id"], "vastadventures:gem/core/ballast_mainhand_0");
+        assert_eq!(mods[0]["amount"], 5.0);
         assert_eq!(out.custom["vastadventures"]["gems"][0]["purity"], "normal");
         assert_eq!(out.lore.as_array().unwrap().len(), 3, "rarity, the gem, one empty socket");
         // the second socket takes another, the third is refused
-        let again = socket("minecraft:diamond_sword", Some(&out.custom), Some(&out.modifiers), &made.item, Some(gem_custom)).unwrap();
-        assert!(socket("minecraft:diamond_sword", Some(&again.custom), Some(&again.modifiers), &made.item, Some(gem_custom)).is_none());
+        let again = socket("minecraft:diamond_sword", Some(&out.custom), &made.item, Some(gem_custom)).unwrap();
+        assert!(socket("minecraft:diamond_sword", Some(&again.custom), &made.item, Some(gem_custom)).is_none());
     }
 
     #[test]
-    fn socketing_keeps_the_affixes_without_the_stack_modifiers() {
-        // The window's copy of a stack has no `attribute_modifiers`: the affixes' come back from `custom_data`.
+    fn socketing_keeps_the_affixes() {
         let custom = json!({"vastadventures": {"rarity": "vastadventures:rare", "sockets": 1,
                             "affixes": {"vastadventures:melee/attribute/violent": 0.5}}});
         let ballast = gem_named("vastadventures:core/ballast").unwrap();
         let made = gem_stack(ballast, 2);
-        let out = socket("minecraft:diamond_sword", Some(&custom), None, &made.item, Some(&made.components[0].1)).unwrap();
-        let ids: Vec<&str> = out.modifiers.as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        let out = socket("minecraft:diamond_sword", Some(&custom), &made.item, Some(&made.components[0].1)).unwrap();
+        let mods = core::own_modifiers("minecraft:diamond_sword", &out.custom);
+        let ids: Vec<&str> = mods.iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(ids.contains(&"vastadventures:affix/melee/attribute/violent"), "{ids:?}");
         assert!(ids.contains(&"vastadventures:gem/core/ballast_mainhand_0"), "{ids:?}");
         assert_eq!(core::own_modifiers("minecraft:diamond_sword", &out.custom).len(), 2);
@@ -703,12 +664,12 @@ mod tests {
         let made = gem_stack(samurai, 3);
         let gem_custom = &made.components[0].1;
         // samurai's leggings bonus is toughness and speed
-        let first = socket("minecraft:iron_leggings", Some(&sword_with_sockets(2)), None, &made.item, Some(gem_custom)).unwrap();
-        assert!(socket("minecraft:iron_leggings", Some(&first.custom), None, &made.item, Some(gem_custom)).is_none());
+        let first = socket("minecraft:iron_leggings", Some(&sword_with_sockets(2)), &made.item, Some(gem_custom)).unwrap();
+        assert!(socket("minecraft:iron_leggings", Some(&first.custom), &made.item, Some(gem_custom)).is_none());
         // no sockets, no gem
-        assert!(socket("minecraft:diamond_sword", None, None, &made.item, Some(gem_custom)).is_none());
+        assert!(socket("minecraft:diamond_sword", None, &made.item, Some(gem_custom)).is_none());
         // not a gem
-        assert!(socket("minecraft:diamond_sword", Some(&sword_with_sockets(1)), None, "minecraft:diamond", None).is_none());
+        assert!(socket("minecraft:diamond_sword", Some(&sword_with_sockets(1)), "minecraft:diamond", None).is_none());
     }
 
     #[test]
@@ -730,16 +691,16 @@ mod tests {
         let custom = json!({"vastadventures": {"rarity": "vastadventures:rare", "sockets": 2,
                             "affixes": {"vastadventures:melee/attribute/violent": 0.5},
                             "gems": [{"gem": "vastadventures:core/ballast", "purity": "flawed"}]}});
-        assert!(reforge("minecraft:diamond_sword", &custom, None, "vastadventures:starsand", 5).is_none(), "wrong material");
-        assert!(reforge("minecraft:diamond_sword", &custom, None, "vastadventures:glow_shard", 1).is_none(), "too few");
-        let out = reforge("minecraft:diamond_sword", &custom, None, "vastadventures:glow_shard", 2).unwrap();
+        assert!(reforge("minecraft:diamond_sword", &custom, "vastadventures:starsand", 5).is_none(), "wrong material");
+        assert!(reforge("minecraft:diamond_sword", &custom, "vastadventures:glow_shard", 1).is_none(), "too few");
+        let out = reforge("minecraft:diamond_sword", &custom, "vastadventures:glow_shard", 2).unwrap();
         assert_eq!(out.levels, 15);
         assert_eq!(out.custom["vastadventures"]["rarity"], "vastadventures:rare");
         assert_eq!(out.custom["vastadventures"]["gems"][0]["gem"], "vastadventures:core/ballast");
         assert!(out.custom["vastadventures"]["sockets"].as_u64().unwrap() >= 2);
-        let ids: Vec<&str> = out.modifiers.as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
-        assert!(ids.iter().any(|id| id.starts_with("vastadventures:gem/")), "{ids:?}");
-        let again = reforge("minecraft:diamond_sword", &out.custom, None, "vastadventures:glow_shard", 2).unwrap();
+        let mods = core::own_modifiers("minecraft:diamond_sword", &out.custom);
+        assert!(mods.iter().any(|m| m["id"].as_str().unwrap().starts_with("vastadventures:gem/")), "{mods:?}");
+        let again = reforge("minecraft:diamond_sword", &out.custom, "vastadventures:glow_shard", 2).unwrap();
         assert_ne!(again.custom, out.custom, "a reforged item rerolls differently");
     }
 
@@ -748,27 +709,27 @@ mod tests {
         let gem = gem_stack(gem_named("vastadventures:core/ballast").unwrap(), 2);
         assert!(cut_gem(&gem.item, &gem.components[0].1, GEM_DUST, 4).is_none(), "flawed needs 5 dust");
         let (better, levels, dust) = cut_gem(&gem.item, &gem.components[0].1, GEM_DUST, 5).unwrap();
-        assert_eq!((better.purity, levels, dust), ("normal", 9, 5));
+        assert_eq!((better.components[0].1["vastadventures"]["purity"].as_str(), levels, dust), (Some("normal"), 9, 5));
         let perfect = gem_stack(gem_named("vastadventures:core/ballast").unwrap(), 5);
         assert!(cut_gem(&perfect.item, &perfect.components[0].1, GEM_DUST, 64).is_none());
     }
 
     #[test]
     fn sigils_add_sockets_take_gems_and_names() {
-        let plain = sigil("minecraft:diamond_sword", None, None, SEAL_OF_SOCKETS).unwrap();
+        let plain = sigil("minecraft:diamond_sword", None, SEAL_OF_SOCKETS).unwrap();
         assert_eq!(plain.custom["vastadventures"]["sockets"], 1);
-        let two = sigil("minecraft:diamond_sword", Some(&plain.custom), None, SEAL_OF_SOCKETS).unwrap();
-        assert!(sigil("minecraft:diamond_sword", Some(&two.custom), None, SEAL_OF_SOCKETS).is_none(), "two at most");
+        let two = sigil("minecraft:diamond_sword", Some(&plain.custom), SEAL_OF_SOCKETS).unwrap();
+        assert!(sigil("minecraft:diamond_sword", Some(&two.custom), SEAL_OF_SOCKETS).is_none(), "two at most");
         let gemmed = json!({"vastadventures": {"rarity": "vastadventures:rare", "sockets": 2,
                             "affixes": {"vastadventures:melee/attribute/violent": 0.5},
                             "gems": [{"gem": "vastadventures:core/ballast", "purity": "flawed"}]}});
         assert_eq!(socketed_gems(&gemmed).len(), 1);
-        let out = sigil("minecraft:diamond_sword", Some(&gemmed), None, SEAL_OF_EXTRACTION).unwrap();
+        let out = sigil("minecraft:diamond_sword", Some(&gemmed), SEAL_OF_EXTRACTION).unwrap();
         assert!(out.custom["vastadventures"].get("gems").is_none());
-        assert!(!out.modifiers.as_array().unwrap().iter().any(|m| m["id"].as_str().unwrap().starts_with("vastadventures:gem/")));
-        assert!(sigil("minecraft:diamond_sword", Some(&out.custom), None, SEAL_OF_EXTRACTION).is_none(), "nothing to take");
-        assert!(sigil("minecraft:diamond_sword", Some(&gemmed), None, SEAL_OF_ERASURE).unwrap().clear_name);
-        assert!(sigil("minecraft:stick", None, None, SEAL_OF_SOCKETS).is_none());
+        assert!(!core::own_modifiers("minecraft:diamond_sword", &out.custom).iter().any(|m| m["id"].as_str().unwrap().starts_with("vastadventures:gem/")));
+        assert!(sigil("minecraft:diamond_sword", Some(&out.custom), SEAL_OF_EXTRACTION).is_none(), "nothing to take");
+        assert!(sigil("minecraft:diamond_sword", Some(&gemmed), SEAL_OF_ERASURE).unwrap().clear_name);
+        assert!(sigil("minecraft:stick", None, SEAL_OF_SOCKETS).is_none());
     }
 
     #[test]

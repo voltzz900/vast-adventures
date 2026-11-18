@@ -1,12 +1,10 @@
-// Apotheosis for Horizon: bosses and elites (slice 0.3).
-//
-// Injected into horizon-world as `pub mod vastadventures_bosses`. The game's side (vastadventures_client) asks it, for
-// each monster the world spawns naturally, whether a boss takes its place (Apotheosis' invaders: a chance per
-// dimension and world tier) or whether the mob becomes an elite, and gets back a plan: the entity, its rolled
-// stats, effects, name and gear, the gear's guaranteed affix item and, now and then, a gem it drops.
+//! Bosses and elites. For each monster the world spawns naturally, `spawns` asks whether a boss takes its place
+//! (Apotheosis' invaders: a chance per dimension and world tier) or whether the mob becomes an elite, and gets back
+//! a plan: the entity, its rolled stats, effects, name and gear, the gear's guaranteed affix item and, now and then,
+//! a gem it drops.
 
-use crate::vastadventures::{self as core, Rng};
-use serde_json::{Map, Value, json};
+use crate::loot::{self as core, Rng};
+use mod_api::serde_json::{Map, Value, json};
 use std::sync::OnceLock;
 
 /// A boss or elite, ready for the game to summon or apply.
@@ -14,7 +12,7 @@ pub struct Plan {
     pub kind: String,
     /// The rarity's colour, for the announcement (bosses only).
     pub rarity: Option<String>,
-    /// (attribute, operation, value), on the attributes Horizon loads from a mob's data.
+    /// (attribute, operation, value).
     pub attrs: Vec<(String, String, f64)>,
     /// (effect, amplifier, ticks; -1 for ever).
     pub effects: Vec<(String, i32, i32)>,
@@ -24,9 +22,6 @@ pub struct Plan {
     /// Slots whose item always drops.
     pub always_drops: Vec<String>,
 }
-
-/// The attributes a mob's data sets bases for in Horizon (`entity_nbt::mob_from_nbt`).
-const LOADED: &[&str] = &["minecraft:max_health", "minecraft:movement_speed", "minecraft:attack_damage", "minecraft:attack_knockback"];
 
 const SLOTS: [(&str, &str); 6] = [
     ("mainhands", "mainhand"),
@@ -48,8 +43,8 @@ struct Data {
 fn data() -> &'static Data {
     static DATA: OnceLock<Data> = OnceLock::new();
     DATA.get_or_init(|| {
-        use crate::vastadventures_data as d;
-        let read = |text: &str| serde_json::from_str::<Value>(text).expect("Vast Adventures: embedded bosses read");
+        use crate::data as d;
+        let read = |text: &str| mod_api::serde_json::from_str::<Value>(text).expect("Vast Adventures: embedded bosses read");
         let list = |v: Value| v.as_array().cloned().unwrap_or_default();
         let map = |v: Value| v.as_object().cloned().unwrap_or_default();
         Data {
@@ -124,13 +119,13 @@ fn roll_value(value: &Value, rng: &mut Rng) -> f64 {
     }
 }
 
-/// `BossStats`: attribute modifiers (the ones Horizon loads) rolled in their ranges, and effects for ever.
+/// `BossStats`: attribute modifiers rolled in their ranges, and effects for ever.
 fn stats(stats: &Value, rng: &mut Rng) -> (Vec<(String, String, f64)>, Vec<(String, i32, i32)>) {
     let mut attrs = Vec::new();
     for m in stats["attribute_modifiers"].as_array().into_iter().flatten() {
         let attribute = m["attribute"].as_str().unwrap_or_default();
         let value = roll_value(&m["value"], rng);
-        if LOADED.contains(&attribute) {
+        if !attribute.is_empty() {
             attrs.push((attribute.to_owned(), m["operation"].as_str().unwrap_or("add_value").to_owned(), value));
         }
     }
@@ -189,13 +184,12 @@ fn affix_one(equipment: &mut [(String, Value)], rarity: usize, tier: usize, luck
     let id = item["id"].as_str().unwrap_or_default().to_owned();
     let category = core::category(&id)?;
     let rolled = core::roll(category, rarity, tier, luck, rng);
-    let patch = core::patch(&id, &rolled, None);
+    let patch = core::patch(&id, &rolled);
     let components = item.as_object_mut()?.entry("components").or_insert_with(|| json!({}));
     if let Some(name) = patch.name {
         components["minecraft:custom_name"] = name;
     }
     components["minecraft:lore"] = patch.lore;
-    components["minecraft:attribute_modifiers"] = patch.modifiers;
     components["minecraft:custom_data"] = patch.custom;
     Some(slot.clone())
 }
@@ -205,7 +199,7 @@ fn gem_drop(plan: &mut Plan, tier: usize, luck: f32, dimension: &str, rng: &mut 
     if rng.next_f32() > 0.3 || plan.equipment.iter().any(|(slot, _)| slot == "offhand") {
         return;
     }
-    let Some(gem) = crate::vastadventures_gems::random_gem(tier, luck, Some(dimension), rng) else { return };
+    let Some(gem) = crate::gems::random_gem(tier, luck, Some(dimension), rng) else { return };
     let mut components = Map::new();
     components.insert("minecraft:custom_name".into(), gem.name);
     for (id, value) in gem.components {
@@ -362,7 +356,7 @@ mod tests {
             let mut rng = Rng::new(seed);
             let plan = plan_boss("minecraft:overworld", Some("minecraft:plains"), 3, 0.0, &mut rng).expect("an overworld boss");
             assert!(!plan.equipment.is_empty(), "{} has gear", plan.kind);
-            assert!(plan.attrs.iter().all(|(a, _, _)| LOADED.contains(&a.as_str())));
+            assert!(plan.attrs.iter().all(|(a, _, _)| a.contains(':')));
             assert!(plan.effects.iter().any(|(e, _, _)| e == "minecraft:glowing"));
             if let Some(slot) = plan.always_drops.first() {
                 let item = &plan.equipment.iter().find(|(s, _)| s == slot).unwrap().1;

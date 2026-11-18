@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Builds content/vastadventures: the content mod beside the native mod (vastadventures_native).
+"""Builds Vast Adventures' data and assets into `mod/` (the mod's package) and writes `mod/horizon-mod.toml`.
 
-It carries the gem items (one per gem, each with a sprite drawn pixel by pixel below), a creative tab, and the
-port's own names in English and Brazilian Portuguese (Apotheosis' lang is all rights reserved, so none of its words
-are used). The native mod works without it; names then show in English and gems can't exist.
+It carries the gem items (one per gem, each with a sprite drawn pixel by pixel below), the materials and seals, a
+creative tab, the dungeons (build_worldgen.py), and the port's own names in English and Brazilian Portuguese
+(Apotheosis' lang is all rights reserved, so none of its words are used).
 
 Usage: build_content.py
 """
@@ -12,14 +12,21 @@ import json
 import re
 import shutil
 import struct
+import sys
 import zlib
 from pathlib import Path
 
+# The sibling scripts, also under `python3 -I`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "content/vastadventures"
-RUNTIME = ROOT / "mixins/vastadventures_native/runtime.rs"
-DATA = ROOT / "mixins/vastadventures_native/data.rs"
-VERSION = "0.9.0"
+OUT = ROOT / "mod"
+RUNTIME = ROOT / "mod/src/loot.rs"
+DATA = ROOT / "mod/src/data.rs"
+VERSION = "0.10.0"
+# The Horizon build the mod is made for, and the horizon-mixins tool its `[native]` names.
+HORIZON = "702ab1e3b42921ef025841802e59d64060b6c0b4"
+MIXINS = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
 
 # ---- sprites ------------------------------------------------------------------
 
@@ -370,7 +377,7 @@ def lang():
         en[f"purity.vastadventures.{key}"], br[f"purity.vastadventures.{key}"] = e, p
     for key, (e, p) in CLASSES.items():
         en[f"gem_class.vastadventures.{key}"], br[f"gem_class.vastadventures.{key}"] = e, p
-    titles = re.findall(r'\("([a-z]+)", "(the [^"]+)", "([^"]+)"\),', (ROOT / "mixins/vastadventures_native/bosses.rs").read_text())
+    titles = re.findall(r'\("([a-z]+)", "(the [^"]+)", "([^"]+)"\),', (ROOT / "mod/src/bosses.rs").read_text())
     assert len(titles) >= 10, titles
     en["vastadventures.boss_name"], br["vastadventures.boss_name"] = "%s %s", "%s, %s"
     for key, e, p in titles:
@@ -402,6 +409,17 @@ def lang():
                       ("experience_gained", "Experience Gained", "Experiência Ganha"), ("arrow_damage", "Arrow Damage", "Dano de Flecha"),
                       ("projectile_damage", "Projectile Damage", "Dano de Projétil"), ("draw_speed", "Draw Speed", "Velocidade de Puxada")):
         en[f"vastadventures.attribute.{key}"], br[f"vastadventures.attribute.{key}"] = e, p
+        # The mod's own attributes, as the game names them in tooltips.
+        en[f"attribute.name.vastadventures.{key}"], br[f"attribute.name.vastadventures.{key}"] = e, p
+    for key, e, p in (("calm", "Calm", "Calmo"), ("wilds", "Wilds", "Selvagem"), ("rising", "Rising", "Ascensão"),
+                      ("peril", "Peril", "Perigo"), ("apex", "Apex", "Ápice")):
+        en[f"tier.vastadventures.{key}"], br[f"tier.vastadventures.{key}"] = e, p
+    for key, e, p in (("tier", "World tier: %s (tiers: %s)", "Nível do mundo: %s (níveis: %s)"),
+                      ("tier_set", "World tier is now %s: new loot rolls at it.", "O nível do mundo agora é %s: o novo loot sai nele."),
+                      ("tier_unsaved", "World tier set to %s, but it couldn't be saved.", "Nível do mundo definido como %s, mas não deu pra salvar."),
+                      ("no_tier", "No tier %s: %s", "Não existe o nível %s: %s"),
+                      ("no_boss", "No boss could be summoned here.", "Nenhum chefe pôde ser invocado aqui.")):
+        en[f"commands.vastadventures.{key}"], br[f"commands.vastadventures.{key}"] = e, p
     en["info.vastadventures.boss_spawn"] = "A %s boss has appeared: %s at %s %s %s"
     br["info.vastadventures.boss_spawn"] = "Um chefe %s apareceu: %s em %s %s %s"
     for key, e, p in (("undead_knight", "Grave Knight", "Cavaleiro da Cova"), ("honeyed_archer", "Hive Archer", "Arqueira da Colmeia"),
@@ -419,8 +437,10 @@ def main():
     data_gems = re.search(r'GEMS: &str = r##"(.*?)"##', DATA.read_text()).group(1)
     in_data = {g["id"].rsplit("/", 1)[1] for g in json.loads(data_gems)}
     assert in_data == set(GEMS), in_data ^ set(GEMS)
-    if OUT.exists():
-        shutil.rmtree(OUT)
+    # Only the generated halves: mod/ also holds the code.
+    for generated in ("assets", "data"):
+        if (OUT / generated).exists():
+            shutil.rmtree(OUT / generated)
     files = {}
     for gem, (shape, colour, _, _) in GEMS.items():
         item = f"gem_{gem}"
@@ -456,13 +476,18 @@ def main():
             target.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
     (OUT / "horizon-mod.toml").write_text(
         'id = "vastadventures"\n'
-        'name = "Vast Adventures (content)"\n'
+        'name = "Vast Adventures"\n'
         f'version = "{VERSION}"\n'
-        'description = "Vast Adventures\' gems, materials, seals, dungeons and names in English and Brazilian Portuguese. Install it with the native mod."\n'
+        'description = "Rarities and affixes on gear, gems and sockets, bosses, elites and dungeons, built from Apotheosis\' MIT code and data."\n'
         'authors = ["voltzz900"]\n'
         'api = "0.2"\n'
         'side = "both"\n'
         'capabilities = ["registries"]\n'
+        '\n'
+        '[native]\n'
+        'game = "26.3"\n'
+        f'horizon = "{HORIZON}"\n'
+        f'mixins = "{MIXINS}"\n'
         )
     print(f"{OUT}: {len(GEMS)} gems, {len(en)} lang keys")
 

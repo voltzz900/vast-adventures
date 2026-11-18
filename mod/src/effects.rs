@@ -1,13 +1,11 @@
-// Apotheosis for Horizon: the effects of affixes and gems beyond the game's attributes (slices 0.6 and 0.7).
-//
-// Injected into horizon-world as `pub mod vastadventures_effects`. Given an item (its id and `custom_data`), it lists
-// what its affixes and socketed gems do: mob effects on a hit, an arrow, a hurt or a broken block, damage
-// reduction, enchantment levels, executing, thunderstruck, cleaving, telepathic and festive drops, and radial
-// mining. The game's side applies them at the matching hooks.
+//! What affixes and gems do beyond the game's attributes. Given an item (its id and `custom_data`), it lists what
+//! its affixes and socketed gems do: mob effects on a hit, an arrow, a hurt or a broken block, damage reduction,
+//! enchantment levels, executing, thunderstruck, cleaving, telepathic and festive drops, and radial mining. The
+//! hooks in `combat` apply them. The Apothic attributes are the mod's own attributes (`APOTHIC`).
 
-use crate::vastadventures::{self as core, step_value};
-use crate::vastadventures_gems as gems;
-use serde_json::Value;
+use crate::loot::{self as core, step_value};
+use crate::gems as gems;
+use mod_api::serde_json::Value;
 
 /// When a mob effect applies, and to whom (`MobEffectAffix.Target`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,7 +115,7 @@ fn effect_of(typ: &str, raw: &Value, v: &Value, level: f32, source: &str) -> Opt
 
 /// Text components for an effect (for gem tooltips and the item tooltip's lines), with English fallbacks.
 pub fn describe(effect: &Effect) -> Vec<Value> {
-    use serde_json::json;
+    use mod_api::serde_json::json;
     let pct = |v: f64| format!("{}%", (v * 1000.0).round() / 10.0);
     match effect {
         Effect::MobEffect { target, effect, duration, amplifier, .. } => {
@@ -268,8 +266,8 @@ pub fn radial_area(pos: [i32; 3], yaw: f32, pitch: f32, width: i32, x_off: i32, 
 
 // ---- Apothic attributes (slice 0.7) ----------------------------------------------------
 
-/// The Apothic Attributes this port carries out, with the base a player has (Apothic's own, but crit chance:
-/// 0 rather than 5%, so a player without such gear hits as in the vanilla game).
+/// The Apothic Attributes this port carries out, declared as the mod's own attributes with the base a player has
+/// (Apothic's own, but crit chance: 0 rather than 5%, so a player without such gear hits as in the vanilla game).
 pub const APOTHIC: &[(&str, f64)] = &[
     ("vastadventures:crit_chance", 0.0),
     ("vastadventures:crit_damage", 1.5),
@@ -316,49 +314,6 @@ pub fn apothic_text(attribute: &str, amount: f64, operation: &str) -> (String, S
     (shown, format!("vastadventures.attribute.{path}"))
 }
 
-static STATS: std::sync::RwLock<Vec<(&'static str, f64)>> = std::sync::RwLock::new(Vec::new());
-static PLAYER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(i32::MIN);
-
-/// The value of each Apothic attribute given `modifiers` (attribute, amount, operation), as the game works an
-/// attribute out: base plus the added values, then the base share, then each total share.
-pub fn stat_values(modifiers: &[(String, f64, String)]) -> Vec<(&'static str, f64)> {
-    APOTHIC
-        .iter()
-        .map(|&(attribute, base)| {
-            let (mut add, mut share, mut total) = (0.0, 0.0, 1.0);
-            for (_, amount, operation) in modifiers.iter().filter(|m| m.0 == attribute) {
-                match operation.as_str() {
-                    "add_multiplied_base" => share += amount,
-                    "add_multiplied_total" => total *= 1.0 + amount,
-                    _ => add += amount,
-                }
-            }
-            let value = base + add;
-            (attribute, (value + value * share) * total)
-        })
-        .collect()
-}
-
-/// Records the player's (entity `player`) Apothic attributes from the modifiers their equipment gives.
-pub fn set_stats(player: i32, modifiers: &[(String, f64, String)]) {
-    if let Ok(mut s) = STATS.write() {
-        *s = stat_values(modifiers);
-    }
-    PLAYER.store(player, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// The player's value of Apothic attribute `attribute` (its base before the equipment is known).
-pub fn stat(attribute: &str) -> f64 {
-    let base = APOTHIC.iter().find(|(a, _)| *a == attribute).map_or(0.0, |(_, b)| *b);
-    STATS.read().ok().and_then(|s| s.iter().find(|(a, _)| *a == attribute).map(|(_, v)| *v)).unwrap_or(base)
-}
-
-/// The player's entity id, as the damage hooks name it (none before the equipment is known).
-pub fn player() -> Option<i32> {
-    let id = PLAYER.load(std::sync::atomic::Ordering::Relaxed);
-    (id != i32::MIN).then_some(id)
-}
-
 /// A number in [0, 1) for the combat rolls: SplitMix64 over a shared counter, seeded by the clock.
 pub fn roll() -> f64 {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -371,9 +326,9 @@ pub fn roll() -> f64 {
     (z >> 11) as f64 / (1u64 << 53) as f64
 }
 
-/// A block's experience times the player's experience gained, the fraction rounded by chance.
-pub fn scaled_experience(experience: u32) -> u32 {
-    let scaled = f64::from(experience) * stat("vastadventures:experience_gained");
+/// A block's experience times the player's experience gained (`gained`), the fraction rounded by chance.
+pub fn scaled_experience(experience: u32, gained: f64) -> u32 {
+    let scaled = f64::from(experience) * gained;
     let whole = scaled.floor();
     (whole + f64::from(u8::from(roll() < scaled - whole))) as u32
 }
@@ -421,7 +376,7 @@ pub fn pierced(damage: f64, armor: f64, toughness: f64, shred: f64, pierce: f64)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use mod_api::serde_json::json;
 
     #[test]
     fn affixes_give_effects() {
@@ -470,24 +425,6 @@ mod tests {
         assert!(damage_kinds("minecraft:fall").contains(&"fall"));
         assert!(damage_kinds("minecraft:magic").contains(&"magic"));
     }
-    #[test]
-    fn apothic_stats() {
-        let mods = vec![
-            ("vastadventures:crit_chance".to_owned(), 0.3, "add_value".to_owned()),
-            ("vastadventures:crit_damage".to_owned(), 0.4, "add_value".to_owned()),
-            ("vastadventures:draw_speed".to_owned(), 0.5, "add_multiplied_total".to_owned()),
-            ("vastadventures:healing_received".to_owned(), 0.2, "add_multiplied_base".to_owned()),
-            ("minecraft:armor".to_owned(), 3.0, "add_value".to_owned()),
-        ];
-        let v = stat_values(&mods);
-        let get = |a: &str| v.iter().find(|(x, _)| *x == a).unwrap().1;
-        assert!((get("vastadventures:crit_chance") - 0.3).abs() < 1e-9);
-        assert!((get("vastadventures:crit_damage") - 1.9).abs() < 1e-9);
-        assert!((get("vastadventures:draw_speed") - 1.5).abs() < 1e-9);
-        assert!((get("vastadventures:healing_received") - 1.2).abs() < 1e-9);
-        assert_eq!(get("vastadventures:life_steal"), 0.0);
-    }
-
     #[test]
     fn rolls_spread() {
         let rolls: Vec<f64> = (0..1000).map(|_| roll()).collect();

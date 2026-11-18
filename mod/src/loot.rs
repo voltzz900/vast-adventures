@@ -1,22 +1,13 @@
-// Apotheosis for Horizon: rarities and affixes on loot (the first slice of a port of Apotheosis' adventure module).
-//
-// Injected into horizon-world as `pub mod vastadventures`; the loot hooks there and the game's hooks in horizon-client
-// call it. It follows Apotheosis' own rolling (LootController, LootRule, AttributeAffix): a chest sometimes holds an
-// extra affix item, and gear any loot table drops is sometimes turned into one. The item gets a rarity, a coloured
-// name built from its affixes, and its affixes as attribute modifiers the game applies itself.
-//
-// This slice carries the attribute affixes whose attribute the game has (`minecraft:...`); the effect, ability,
-// socket and durability parts of a rarity's rules roll nothing yet. The world tier is one for the whole world.
+//! Rarities and affixes on loot, following Apotheosis' own rolling (LootController, LootRule, AttributeAffix): a chest
+//! sometimes holds an extra affix item, and gear any loot table drops is sometimes turned into one. The item gets a
+//! rarity, a coloured name built from its affixes and the roll in its `custom_data`; the modifiers its affixes give
+//! are worked out from that (`own_modifiers`) wherever the game asks for a stack's modifiers. The world tier is one
+//! for the whole world.
 
-use serde_json::{Map, Value, json};
+use mod_api::serde_json::{self, Map, Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{OnceLock, RwLock};
-
-pub const ID: &str = "vastadventures_native";
-pub const NAME: &str = "Vast Adventures";
-pub const VERSION: &str = "0.9.0";
-pub const DESCRIPTION: &str = "Rarities, affixes, sockets, gems, bosses, elites and dungeons, built from Apotheosis' MIT code and data.";
 
 // ---- world tier ---------------------------------------------------------------
 
@@ -150,7 +141,7 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 fn data() -> &'static Data {
     static DATA: OnceLock<Data> = OnceLock::new();
     DATA.get_or_init(|| {
-        use crate::vastadventures_data as d;
+        use crate::data as d;
         let parse = |text: &str| serde_json::from_str::<Value>(text).expect("Vast Adventures: embedded data reads");
         let rarities = match parse(d::RARITIES) {
             Value::Object(map) => map
@@ -217,9 +208,9 @@ pub fn affix_named(id: &str) -> Option<&'static Affix> {
 fn supported(affix: &Affix) -> bool {
     match affix.typ.as_str() {
         "vastadventures:attribute" => {
-            affix.attribute.starts_with("minecraft:") || crate::vastadventures_effects::apothic(&affix.attribute)
+            affix.attribute.starts_with("minecraft:") || crate::effects::apothic(&affix.attribute)
         }
-        typ => crate::vastadventures_effects::ported(typ, &affix.raw),
+        typ => crate::effects::ported(typ, &affix.raw),
     }
 }
 
@@ -345,7 +336,6 @@ pub fn step_value(value: &Value, level: f32) -> Option<f64> {
 
 /// A rolled item: its rarity and its affixes with their levels, in naming order.
 pub struct Rolled {
-    pub category: &'static str,
     pub rarity: usize,
     pub affixes: Vec<(usize, f32)>,
     /// Empty sockets the rarity's `socket` rule gave it.
@@ -439,7 +429,7 @@ pub fn roll(category: &'static str, rarity: usize, tier: usize, luck: f32, rng: 
         let j = rng.below(i as u64 + 1) as usize;
         affixes.swap(i, j);
     }
-    Rolled { category, rarity, affixes, sockets }
+    Rolled { rarity, affixes, sockets }
 }
 
 /// A random rarity from `pool` (rarity ids; empty means all), weighted by tier and luck; when every weight is
@@ -578,17 +568,15 @@ fn item_name(item: &str) -> Value {
 
 // ---- the stack ----------------------------------------------------------------
 
-/// What a roll writes on the stack: its custom name, its lore (the rarity), its attribute modifiers (the item's
-/// own ones and the affixes'), and the roll itself in `custom_data`.
+/// What a roll writes on the stack: its custom name, its lore (the rarity) and the roll itself in `custom_data`.
+/// The modifiers its affixes give are not written: `own_modifiers` works them out from `custom_data`.
 pub struct Patch {
     pub name: Option<Value>,
     pub lore: Value,
-    pub modifiers: Value,
     pub custom: Value,
 }
 
 /// The modifiers an item's affixes give, from its `custom_data` (affix levels and rarity), in its category's slot.
-/// Worked out again wherever needed: a stack's `attribute_modifiers` doesn't reach the game's window.
 pub fn affix_modifiers(item: &str, custom: &Value) -> Vec<Value> {
     let Some(category) = category(item) else { return Vec::new() };
     let a = &custom["vastadventures"];
@@ -615,42 +603,16 @@ pub fn affix_modifiers(item: &str, custom: &Value) -> Vec<Value> {
 /// Every modifier this mod gives an item, affixes' and gems', from its `custom_data`.
 pub fn own_modifiers(item: &str, custom: &Value) -> Vec<Value> {
     let mut out = affix_modifiers(item, custom);
-    out.extend(crate::vastadventures_gems::gem_modifiers(item, custom));
+    out.extend(crate::gems::gem_modifiers(item, custom));
     out
 }
 
-/// The item kind's own modifiers and then this mod's, as the stack's `attribute_modifiers`.
-pub fn full_modifiers(item: &str, custom: &Value) -> Value {
-    let mut list = defaults_of(item).modifiers.as_ref().map(modifier_list).unwrap_or_default();
-    list.retain(|m| !m["id"].as_str().is_some_and(|id| id.starts_with("vastadventures:")));
-    list.extend(own_modifiers(item, custom));
-    Value::Array(list)
-}
-
-pub fn patch(item: &str, rolled: &Rolled, current_modifiers: Option<&Value>) -> Patch {
+pub fn patch(item: &str, rolled: &Rolled) -> Patch {
     let d = data();
     let rarity = &d.rarities[rolled.rarity];
-    let slot = slot_group(rolled.category);
-    let mut modifiers = current_modifiers
-        .or(defaults_of(item).modifiers.as_ref())
-        .map(modifier_list)
-        .unwrap_or_default();
     let mut levels = Map::new();
     for &(i, level) in &rolled.affixes {
-        let affix = &d.affixes[i];
-        levels.insert(affix.id.clone(), json!(level));
-        if affix.typ != "vastadventures:attribute" {
-            continue;
-        }
-        let Some(amount) = affix.values.get(&rarity.id).and_then(|v| step_value(v, level)) else { continue };
-        let path = affix.id.split_once(':').map_or(affix.id.as_str(), |(_, p)| p);
-        modifiers.push(json!({
-            "type": affix.attribute,
-            "id": format!("vastadventures:affix/{path}"),
-            "amount": amount,
-            "operation": affix.operation,
-            "slot": slot,
-        }));
+        levels.insert(d.affixes[i].id.clone(), json!(level));
     }
     let name = match rolled.affixes.as_slice() {
         [] => None,
@@ -669,8 +631,8 @@ pub fn patch(item: &str, rolled: &Rolled, current_modifiers: Option<&Value>) -> 
     if rolled.sockets > 0 {
         custom["vastadventures"]["sockets"] = json!(rolled.sockets);
     }
-    let lore = crate::vastadventures_gems::lore_for(&custom);
-    Patch { name, lore, modifiers: Value::Array(modifiers), custom }
+    let lore = crate::gems::lore_for(&custom);
+    Patch { name, lore, custom }
 }
 
 // ---- loot hooks ---------------------------------------------------------------
@@ -691,7 +653,7 @@ fn injection_chance(id: &str) -> Option<f64> {
 /// an item), and chests may hold one more item, an affix item (`affix_loot_injection`).
 pub fn table_load(id: &str, table: &mut Value) {
     static FIRST: std::sync::Once = std::sync::Once::new();
-    FIRST.call_once(|| log::info!("Vast Adventures: adding affix loot to the loot tables (first: {id})"));
+    FIRST.call_once(|| eprintln!("Vast Adventures: adding affix loot to the loot tables (first: {id})"));
     let path = id.split_once(':').map_or(id, |(_, p)| p);
     let Some(table) = table.as_object_mut() else { return };
     let pools = table.entry("pools").or_insert_with(|| Value::Array(Vec::new()));
@@ -730,14 +692,14 @@ pub fn table_load(id: &str, table: &mut Value) {
             }],
         }));
     }
-    crate::vastadventures_gems::table_load(id, pools);
+    crate::gems::table_load(id, pools);
 }
 
 /// `native_loot_condition` for this mod's kinds: None for a kind that isn't its own.
 pub fn loot_condition(kind: &str, has_player: bool, entity: Option<&str>) -> Option<bool> {
     match kind {
         "vastadventures:has_player" => Some(has_player),
-        "vastadventures:is_monster" => Some(entity.is_some_and(crate::vastadventures_gems::is_monster)),
+        "vastadventures:is_monster" => Some(entity.is_some_and(crate::gems::is_monster)),
         _ => None,
     }
 }
@@ -749,7 +711,7 @@ pub fn note_context(kind: &str, player: bool, entity: Option<&str>) {
     if let Ok(mut seen) = SEEN.lock() {
         if !seen.iter().any(|k| k == kind) {
             seen.push(kind.to_owned());
-            log::info!("Vast Adventures: first {kind} roll (player: {player}, entity: {})", entity.unwrap_or("none"));
+            eprintln!("Vast Adventures: first {kind} roll (player: {player}, entity: {})", entity.unwrap_or("none"));
         }
     }
 }
@@ -774,18 +736,10 @@ fn apply(stack: &mut Stack<'_>, patch: Patch) {
         stack.names.retain(|(kind, _)| kind != "minecraft:custom_name");
         stack.names.push(("minecraft:custom_name".to_owned(), name));
     }
-    for (id, value) in [
-        ("minecraft:lore", patch.lore),
-        ("minecraft:attribute_modifiers", patch.modifiers),
-        ("minecraft:custom_data", patch.custom),
-    ] {
+    for (id, value) in [("minecraft:lore", patch.lore), ("minecraft:custom_data", patch.custom)] {
         stack.components.retain(|(c, _)| c != id);
         stack.components.push((id.to_owned(), value));
     }
-}
-
-fn current_modifiers(components: &[(String, Value)]) -> Option<&Value> {
-    components.iter().rev().find(|(id, _)| id == "minecraft:attribute_modifiers").map(|(_, v)| v)
 }
 
 /// `native_loot_function` for this mod's kinds. False for a kind that isn't its own.
@@ -822,8 +776,7 @@ pub fn loot_function(
                     *stack.item = entry.item.clone();
                     *stack.count = 1;
                     stack.components.retain(|(id, _)| id != "minecraft:attribute_modifiers");
-                    log::info!("Vast Adventures: chest loot {} at {} ({} affixes)", entry.item, d.rarities[rolled.rarity].id, rolled.affixes.len());
-                    apply(stack, patch(&entry.item, &rolled, None));
+                    apply(stack, patch(&entry.item, &rolled));
                 }
                 None => *stack.count = 0,
             }
@@ -841,18 +794,15 @@ pub fn loot_function(
             }
             let rarity = random_rarity(&[], tier, luck, &mut rng);
             let rolled = roll(category, rarity, tier, luck, &mut rng);
-            let item = stack.item.clone();
-            log::info!("Vast Adventures: {} turned {} ({} affixes)", item, data().rarities[rolled.rarity].id, rolled.affixes.len());
-            let p = patch(&item, &rolled, current_modifiers(stack.components));
+            let p = patch(stack.item, &rolled);
             apply(stack, p);
             true
         }
         // A gem from a monster or a chest.
         "vastadventures:random_gem" => {
-            let made = if has_player { crate::vastadventures_gems::random_gem(tier, luck, dimension, &mut rng) } else { None };
+            let made = if has_player { crate::gems::random_gem(tier, luck, dimension, &mut rng) } else { None };
             match made {
                 Some(gem) => {
-                    log::info!("Vast Adventures: gem {} at {}", gem.item, gem.purity);
                     *stack.item = gem.item;
                     *stack.count = 1;
                     stack.names.retain(|(k, _)| k != "minecraft:custom_name");
@@ -941,11 +891,11 @@ mod tests {
             for &(i, _) in &rolled.affixes {
                 assert!(supported(&data().affixes[i]));
             }
-            let p = patch("minecraft:diamond_sword", &rolled, None);
-            let mods = p.modifiers.as_array().unwrap();
-            assert_eq!(mods[0]["id"], "minecraft:base_attack_damage", "keeps the sword's own damage");
+            let p = patch("minecraft:diamond_sword", &rolled);
+            let mods = own_modifiers("minecraft:diamond_sword", &p.custom);
             let attributes = rolled.affixes.iter().filter(|(i, _)| data().affixes[*i].typ == "vastadventures:attribute").count();
-            assert_eq!(mods.len(), 1 + attributes);
+            assert_eq!(mods.len(), attributes);
+            assert!(mods.iter().all(|m| m["slot"] == "mainhand"));
             assert_eq!(p.name.unwrap()["color"], "#5555FF");
         }
     }

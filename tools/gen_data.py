@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes mixins/vastadventures_native/data.rs from Apotheosis' data files.
+"""Writes mod/src/data.rs from Apotheosis' data files.
 
 Apotheosis' code and data are MIT (Copyright (c) 2018-2025 Stormraven Studios, LLC); its assets (textures, models,
 sounds, lang) are all rights reserved, so only data/ is read here, and the names this port shows are its own.
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = "data/apotheosis/apotheosis/"
-OUT = Path(__file__).resolve().parent.parent / "mixins/vastadventures_native/data.rs"
+OUT = Path(__file__).resolve().parent.parent / "mod/src/data.rs"
 
 
 def files(source):
