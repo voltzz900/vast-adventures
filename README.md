@@ -168,7 +168,7 @@ roll, not only the four Horizon read from mob data.
   effects are plain Rust with their tests).
 - `tools/package.py` packs `dist/vastadventures-<version>.hmod` with `cargo horizon-mod build`.
 
-It is built for Horizon `702ab1e` on the mod API, with no mixins.
+It is built for Horizon `0b14f8a` on the mod API, with no mixins.
 
 ## License
 
