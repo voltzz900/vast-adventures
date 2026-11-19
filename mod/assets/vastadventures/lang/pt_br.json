@@ -144,6 +144,7 @@
   "attribute.name.vastadventures.life_steal": "Roubo de Vida",
   "attribute.name.vastadventures.projectile_damage": "Dano de Projétil",
   "commands.vastadventures.no_boss": "Nenhum chefe pôde ser invocado aqui.",
+  "commands.vastadventures.no_permission": "Só um operador pode fazer isso.",
   "commands.vastadventures.no_tier": "Não existe o nível %s: %s",
   "commands.vastadventures.tier": "Nível do mundo: %s (níveis: %s)",
   "commands.vastadventures.tier_set": "O nível do mundo agora é %s: o novo loot sai nele.",

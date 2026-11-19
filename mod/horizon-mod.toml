@@ -1,6 +1,6 @@
 id = "vastadventures"
 name = "Vast Adventures"
-version = "0.10.1"
+version = "0.10.2"
 description = "Rarities and affixes on gear, gems and sockets, bosses, elites and dungeons, built from Apotheosis' MIT code and data."
 authors = ["voltzz900"]
 api = "0.2"

@@ -24,7 +24,7 @@ use mod_api::{
     ClientSetupEvent, DataLoadContext, EntityJoinLevelEvent, EquipmentSlotGroup, FinalizeSpawnEvent, Flow,
     GetEnchantmentLevelEvent, GrindstonePlaceEvent, HearsProjectileImpactsEvent, Host, HostSide, Hooks, Identifier,
     ItemAttributeModifierEvent, ItemPart, ItemTooltipEvent, LevelHost, LevelRandomHost, LivingDamagePostEvent,
-    LivingEquipmentChangeEvent, LivingHealEvent, LevelTickPreEvent, LivingIncomingDamageEvent, LootConditionEvent, LootDropsEvent, LootFunctionEvent,
+    LivingDeathEvent, LivingEquipmentChangeEvent, LivingHealEvent, LevelTickPreEvent, LivingIncomingDamageEvent, LootConditionEvent, LootDropsEvent, LootFunctionEvent,
     LootTableLoadEvent, LoopContext, ModifyDefaultComponentsEvent, PlayerDestroyedBlockEvent, PlayerLoggedInEvent,
     PlayerLoggedOutEvent, ProjectileImpactEvent, Registrar, RegisterCommandsEvent, RegistrationContext,
     RunModCommandEvent, Sentiment, ServerAboutToStartEvent, ServerHost, ServerStartedEvent, ServerStoppedEvent,
@@ -76,6 +76,7 @@ impl Hooks for VastAdventures {
 
     fn server_about_to_start(&self, host: &mut dyn ServerHost, _: &mut ServerAboutToStartEvent) {
         nbt::learn_items(&*host);
+        combat::reset();
     }
 
     // ---- loot ----
@@ -141,7 +142,7 @@ impl Hooks for VastAdventures {
             let base = event.enchantments.level(&key);
             let bonus = effects::enchantment_bonus(&effects, &id, base);
             if bonus > 0 {
-                event.enchantments.set(key, base + bonus);
+                event.enchantments.set(key, base.saturating_add(bonus));
             }
         }
     }
@@ -182,6 +183,7 @@ impl Hooks for VastAdventures {
 
     fn server_stopped(&self, _host: &mut dyn ServerHost, _: &mut ServerStoppedEvent) {
         loot::set_tier(0);
+        combat::reset();
     }
 
     fn finalize_spawn(&self, host: &dyn Host, event: &mut FinalizeSpawnEvent<'_>) -> Flow {
@@ -238,6 +240,13 @@ impl Hooks for VastAdventures {
         }
     }
 
+    fn living_death(&self, _host: &mut dyn ServerHost, event: &mut LivingDeathEvent<'_>) -> Flow {
+        if event.kind == "minecraft:player" {
+            combat::forget(event.entity);
+        }
+        Flow::Continue
+    }
+
     fn attack_entity(&self, host: &mut dyn ServerHost, event: &mut AttackEntityEvent<'_>) -> Flow {
         combat::attack(host, event.entity);
         Flow::Continue
@@ -266,7 +275,7 @@ impl Hooks for VastAdventures {
     }
 
     fn projectile_impact(&self, host: &mut dyn ServerHost, event: &mut ProjectileImpactEvent<'_>) -> Flow {
-        combat::projectile(host, event.kind, event.owner, event.entity);
+        combat::projectile(host, event.projectile, event.kind, event.owner, event.entity);
         Flow::Continue
     }
 

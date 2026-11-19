@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "mod"
 RUNTIME = ROOT / "mod/src/loot.rs"
 DATA = ROOT / "mod/src/data.rs"
-VERSION = "0.10.1"
+VERSION = "0.10.2"
 # The Horizon build the mod is made for, and the horizon-mixins tool its `[native]` names.
 HORIZON = "0b14f8acfd97fa2c750e42795249dcc981178ca4"
 MIXINS = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
@@ -418,7 +418,8 @@ def lang():
                       ("tier_set", "World tier is now %s: new loot rolls at it.", "O nível do mundo agora é %s: o novo loot sai nele."),
                       ("tier_unsaved", "World tier set to %s, but it couldn't be saved.", "Nível do mundo definido como %s, mas não deu pra salvar."),
                       ("no_tier", "No tier %s: %s", "Não existe o nível %s: %s"),
-                      ("no_boss", "No boss could be summoned here.", "Nenhum chefe pôde ser invocado aqui.")):
+                      ("no_boss", "No boss could be summoned here.", "Nenhum chefe pôde ser invocado aqui."),
+                      ("no_permission", "Only an operator can do that.", "Só um operador pode fazer isso.")):
         en[f"commands.vastadventures.{key}"], br[f"commands.vastadventures.{key}"] = e, p
     en["info.vastadventures.boss_spawn"] = "A %s boss has appeared: %s at %s %s %s"
     br["info.vastadventures.boss_spawn"] = "Um chefe %s apareceu: %s em %s %s %s"

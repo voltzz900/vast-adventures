@@ -19,9 +19,9 @@ Loot gets rarities and affixes the way Apotheosis rolls them, from Apotheosis' o
 - **Affixes** are attribute bonuses the game applies itself, in the item's slot, alongside the item's own
   bonuses. Examples: attack damage, attack speed, reach, armour, toughness, health, speed, knockback
   resistance and mining speed. Their size depends on the rarity and on a roll.
-- **World tier**: `/vastadventures tier` shows it, and `/vastadventures tier <calm|wilds|rising|peril|apex>`
-  sets it. Higher tiers roll rarer items. It is one tier for the whole world, saved with it. Anyone may set it
-  until Apotheosis' tier unlocks are ported.
+- **World tier**: anyone may see it with `/vastadventures tier`, and an operator (permission level 2) sets it
+  with `/vastadventures tier <calm|wilds|rising|peril|apex>`. Higher tiers roll rarer items. It is one tier for
+  the whole world, saved with it, until Apotheosis' tier unlocks are ported.
 
 ## 0.2: sockets and gems
 

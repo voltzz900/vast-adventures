@@ -14,7 +14,7 @@ use mod_api::{
     ActiveEffect, AttributeModifier, AttributeOperation, EntityRef, EquipmentSlot, Flow, Hand, Identifier, ItemStack,
     LivingDamagePostEvent, LivingIncomingDamageEvent, LootDrops, ModifierLifetime, ServerHost,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -53,8 +53,56 @@ struct Melee {
 static MELEE: Mutex<Vec<Melee>> = Mutex::new(Vec::new());
 /// Arrows of a player hitting a mob: (target, shooter), for the damage that follows.
 static ARROW_HITS: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());
-/// When each effect last fired, for its cooldown.
-static COOLDOWNS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+/// A player's projectile hit an entity: its bow's effects wait for the hit to be dealt (`damage_dealt`), so a hit
+/// the game refuses (PvP off, a team without friendly fire, a dodge, invulnerability) gives none.
+struct ArrowEffects {
+    projectile: u32,
+    target: u32,
+    owner: u32,
+    effects: Vec<Effect>,
+}
+
+static ARROW_EFFECTS: Mutex<Vec<ArrowEffects>> = Mutex::new(Vec::new());
+
+/// When each effect may fire again, by the player's entity id and the effect (its source and target). An entry
+/// goes once its time has passed (`prune`), or with its player (`forget`).
+struct Cooldowns(BTreeMap<(i32, String), Instant>);
+
+impl Cooldowns {
+    const fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    /// Whether the effect `key` may fire for `entity` at `now`; when it may, it waits `cooldown` from now.
+    fn ready(&mut self, entity: i32, key: String, cooldown: Duration, now: Instant) -> bool {
+        let key = (entity, key);
+        if self.0.get(&key).is_some_and(|until| now < *until) {
+            return false;
+        }
+        self.0.insert(key, now + cooldown);
+        true
+    }
+
+    /// Drops the entries whose time has passed.
+    fn prune(&mut self, now: Instant) {
+        self.0.retain(|_, until| *until > now);
+    }
+
+    /// Drops an entity's entries (a player who left or died: a new body has a new id).
+    fn forget(&mut self, entity: i32) {
+        self.0.retain(|(e, _), _| *e != entity);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+static COOLDOWNS: Mutex<Cooldowns> = Mutex::new(Cooldowns::new());
+/// Server ticks between two prunings of the cooldowns.
+const PRUNE_TICKS: u64 = 200;
 /// Whether radial mining is breaking its extra blocks (so they don't mine areas themselves).
 static MINING: AtomicBool = AtomicBool::new(false);
 
@@ -93,12 +141,53 @@ pub fn track(uuid: u128) {
     }
 }
 
+/// A player left: they are no longer read, and their cooldowns go.
 pub fn untrack(uuid: u128) {
     if let Ok(mut players) = PLAYERS.lock() {
         players.retain(|u| *u != uuid);
     }
+    let gone: Vec<u32> = match FIGHTERS.lock() {
+        Ok(mut fighters) => {
+            let gone = fighters.iter().filter(|f| f.uuid == uuid).map(|f| f.entity).collect();
+            fighters.retain(|f| f.uuid != uuid);
+            gone
+        }
+        Err(_) => Vec::new(),
+    };
+    for entity in gone {
+        forget(entity);
+    }
+}
+
+/// An entity's cooldowns go (a player who died respawns with a new entity id).
+pub fn forget(entity: u32) {
+    if let Ok(mut cooldowns) = COOLDOWNS.lock() {
+        cooldowns.forget(entity as i32);
+    }
+}
+
+/// The server starts or stops: nothing of another world's entities is kept.
+pub fn reset() {
+    if let Ok(mut players) = PLAYERS.lock() {
+        players.clear();
+    }
     if let Ok(mut fighters) = FIGHTERS.lock() {
-        fighters.retain(|f| f.uuid != uuid);
+        fighters.clear();
+    }
+    if let Ok(mut melee) = MELEE.lock() {
+        melee.clear();
+    }
+    if let Ok(mut hits) = ARROW_HITS.lock() {
+        hits.clear();
+    }
+    if let Ok(mut arrows) = ARROW_EFFECTS.lock() {
+        arrows.clear();
+    }
+    if let Ok(mut pending) = PENDING.lock() {
+        pending.clear();
+    }
+    if let Ok(mut cooldowns) = COOLDOWNS.lock() {
+        *cooldowns = Cooldowns::new();
     }
 }
 
@@ -129,15 +218,9 @@ fn stack_effects(stack: Option<&ItemStack>) -> Vec<Effect> {
 
 /// Whether an effect from `source` may fire now for `entity` (its cooldown in ticks has passed), marking it fired.
 fn ready(entity: i32, source: &str, target: Target, cooldown: i32) -> bool {
-    let Ok(mut map) = COOLDOWNS.lock() else { return true };
-    let map = map.get_or_insert_with(HashMap::new);
-    let key = format!("{entity}/{source}/{target:?}");
-    let now = Instant::now();
-    if map.get(&key).is_some_and(|t| now.duration_since(*t) < Duration::from_millis(cooldown.max(0) as u64 * 50)) {
-        return false;
-    }
-    map.insert(key, now);
-    true
+    let Ok(mut cooldowns) = COOLDOWNS.lock() else { return true };
+    let wait = Duration::from_millis(cooldown.max(0) as u64 * 50);
+    cooldowns.ready(entity, format!("{source}/{target:?}"), wait, Instant::now())
 }
 
 fn tier_luck_id() -> Option<Identifier> {
@@ -194,12 +277,20 @@ fn add_effect(host: &mut dyn ServerHost, entity: u32, effect: &str, amplifier: i
 
 /// A server tick starts: the last tick's blows are over, and what no level could do in a whole tick is dropped.
 pub fn tick_start() {
-    TICKS.fetch_add(1, Ordering::Relaxed);
+    let ticks = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+    if ticks.is_multiple_of(PRUNE_TICKS)
+        && let Ok(mut cooldowns) = COOLDOWNS.lock()
+    {
+        cooldowns.prune(Instant::now());
+    }
     if let Ok(mut melee) = MELEE.lock() {
         melee.clear();
     }
     if let Ok(mut hits) = ARROW_HITS.lock() {
         hits.clear();
+    }
+    if let Ok(mut arrows) = ARROW_EFFECTS.lock() {
+        arrows.clear();
     }
     if let Ok(mut pending) = PENDING.lock() {
         pending.retain_mut(|(_, age)| {
@@ -211,7 +302,7 @@ pub fn tick_start() {
 
 /// The level in place ticks: its players are read now and then, and what waits for its entities is done.
 pub fn level_tick(host: &mut dyn ServerHost) {
-    if TICKS.load(Ordering::Relaxed) % 5 == 0 {
+    if TICKS.load(Ordering::Relaxed).is_multiple_of(5) {
         refresh(host);
     }
     let pending = PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default();
@@ -382,11 +473,9 @@ fn melee_hit(m: &Melee, damage: f64) -> f64 {
                 }
                 out.push(Pending::Bolt { near: attacker, at: m.at });
             }
-            Effect::Cleaving { chance, targets } => {
-                if fx::roll() < *chance {
-                    for &other in m.near3.iter().take(*targets as usize) {
-                        out.push(Pending::Hurt { entity: other, amount: amount as f32, damage_type: "minecraft:player_attack", causing: attacker });
-                    }
+            Effect::Cleaving { chance, targets } if fx::roll() < *chance => {
+                for &other in m.near3.iter().take(*targets as usize) {
+                    out.push(Pending::Hurt { entity: other, amount: amount as f32, damage_type: "minecraft:player_attack", causing: attacker });
                 }
             }
             _ => {}
@@ -396,9 +485,13 @@ fn melee_hit(m: &Melee, damage: f64) -> f64 {
     amount
 }
 
-/// Damage a player dealt in melee heals them by their life steal.
+/// A hit was dealt (it passed the PvP and team checks, the dodge and the invulnerability): a player's projectile
+/// gives its bow's effects now, and damage a player dealt in melee heals them by their life steal.
 pub fn damage_dealt(event: &LivingDamagePostEvent<'_>) {
     let source = event.source;
+    if source.direct > 0 && event.entity > 0 {
+        arrow_dealt(source.direct as u32, event.entity as u32);
+    }
     if event.kind == "minecraft:player" || source.damage_type != "minecraft:player_attack" || source.causing <= 0 {
         return;
     }
@@ -423,8 +516,9 @@ pub fn arrow_loose(host: &mut dyn ServerHost, stack: &ItemStack, charge: &mut i3
     *charge = (f64::from(*charge) * stat(entity, "vastadventures:draw_speed")).round() as i32;
 }
 
-/// A projectile hit something: a player's arrow hitting a mob, with the bow's arrow effects.
-pub fn projectile(host: &mut dyn ServerHost, kind: &str, owner: u32, entity: Option<u32>) {
+/// A projectile hit something: a player's arrow hitting a mob (for its damage), and the bow's arrow effects, kept
+/// until the hit is dealt.
+pub fn projectile(host: &mut dyn ServerHost, projectile: u32, kind: &str, owner: u32, entity: Option<u32>) {
     let Some(target) = entity else { return };
     if !(kind.ends_with("arrow") || kind.ends_with("trident")) {
         return;
@@ -440,6 +534,24 @@ pub fn projectile(host: &mut dyn ServerHost, kind: &str, owner: u32, entity: Opt
         });
         effects = stack_effects(held.as_ref());
     }
+    effects.retain(|e| matches!(e, Effect::MobEffect { target: Target::ArrowTarget | Target::ArrowSelf, .. }));
+    if effects.is_empty() {
+        return;
+    }
+    if let Ok(mut arrows) = ARROW_EFFECTS.lock() {
+        arrows.retain(|a| a.projectile != projectile || a.target != target);
+        arrows.push(ArrowEffects { projectile, target, owner, effects });
+    }
+}
+
+/// The hit of `projectile` on `target` was dealt: the bow's effects kept for it fire (each once its cooldown
+/// has passed).
+fn arrow_dealt(projectile: u32, target: u32) {
+    let kept = ARROW_EFFECTS.lock().ok().and_then(|mut arrows| {
+        let i = arrows.iter().position(|a| a.projectile == projectile && a.target == target)?;
+        Some(arrows.swap_remove(i))
+    });
+    let Some(ArrowEffects { target, owner, effects, .. }) = kept else { return };
     let mut out = Vec::new();
     for effect in &effects {
         if let Effect::MobEffect { source, target: t @ (Target::ArrowTarget | Target::ArrowSelf), effect, duration, amplifier, cooldown } = effect
@@ -521,5 +633,42 @@ pub fn loot_drops(host: &mut dyn ServerHost, context: &LootDrops<'_>, drops: &mu
                 drops.push(stack);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cooldowns_wait_then_expire() {
+        let mut c = Cooldowns::new();
+        let t0 = Instant::now();
+        let wait = Duration::from_secs(2);
+        assert!(c.ready(7, "a/ArrowTarget".into(), wait, t0), "fires the first time");
+        assert!(!c.ready(7, "a/ArrowTarget".into(), wait, t0 + Duration::from_secs(1)), "waits its cooldown");
+        assert!(c.ready(8, "a/ArrowTarget".into(), wait, t0 + Duration::from_secs(1)), "another player's own");
+        assert!(c.ready(7, "a/ArrowTarget".into(), wait, t0 + wait), "fires again once it passed");
+        // A pruning keeps only what still waits.
+        c.ready(9, "b/HurtSelf".into(), Duration::ZERO, t0);
+        assert_eq!(c.len(), 3);
+        c.prune(t0 + Duration::from_secs(3));
+        assert_eq!(c.len(), 1, "player 7's second firing waits until t0 + 4s");
+        c.prune(t0 + Duration::from_secs(10));
+        assert_eq!(c.len(), 0, "all expired");
+    }
+
+    #[test]
+    fn cooldowns_go_with_their_player() {
+        let mut c = Cooldowns::new();
+        let t0 = Instant::now();
+        let wait = Duration::from_secs(60);
+        c.ready(1, "a/AttackTarget".into(), wait, t0);
+        c.ready(1, "b/AttackSelf".into(), wait, t0);
+        c.ready(2, "a/AttackTarget".into(), wait, t0);
+        c.forget(1);
+        assert_eq!(c.len(), 1);
+        assert!(c.ready(1, "a/AttackTarget".into(), wait, t0), "a forgotten player fires again");
+        assert!(!c.ready(2, "a/AttackTarget".into(), wait, t0));
     }
 }

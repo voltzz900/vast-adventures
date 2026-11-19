@@ -310,6 +310,29 @@ fn gem_lore(gem: &Gem, purity: usize) -> Value {
     Value::Array(lines)
 }
 
+// ---- reading a stack's data ---------------------------------------------------------
+//
+// A stack's `custom_data` comes from the player (Creative sets any): every read here is kept to what this mod
+// writes. Reading a `Value` by index never panics (a missing key or a wrong kind reads as null); writing by index
+// panics unless the value is an object or null, so writes go through `as_object_mut`.
+
+/// This mod's part of a `custom_data`, when it is an object.
+fn own(custom: &Value) -> Option<&Map<String, Value>> {
+    custom.get("vastadventures")?.as_object()
+}
+
+/// The sockets an item's data (its `vastadventures` object) gives it, at most `MAX_SOCKETS`.
+fn socket_count(a: &Value) -> usize {
+    a["sockets"].as_u64().map_or(0, |n| n.min(u64::from(core::MAX_SOCKETS))) as usize
+}
+
+/// The gems socketed in an item, from its `custom_data`: one per socket at most (gems past its sockets do nothing,
+/// as in `SocketHelper.getGems`).
+pub fn socketed(custom: &Value) -> impl Iterator<Item = &Value> {
+    let a = &custom["vastadventures"];
+    a["gems"].as_array().into_iter().flatten().take(socket_count(a))
+}
+
 /// An item's lore from its `custom_data`: the rarity, then one line per socket, the gem in it or empty.
 pub fn lore_for(custom: &Value) -> Value {
     let a = &custom["vastadventures"];
@@ -317,8 +340,8 @@ pub fn lore_for(custom: &Value) -> Value {
     if let Some(line) = a["rarity"].as_str().and_then(core::rarity_line) {
         lines.push(line);
     }
-    let sockets = a["sockets"].as_u64().unwrap_or(0) as usize;
-    let gems = a["gems"].as_array().cloned().unwrap_or_default();
+    let sockets = socket_count(a);
+    let gems: Vec<&Value> = socketed(custom).collect();
     for i in 0..sockets {
         let filled = gems.get(i).and_then(|g| {
             let gem = gem_named(g["gem"].as_str()?)?;
@@ -340,7 +363,7 @@ pub fn gem_modifiers(item: &str, custom: &Value) -> Vec<Value> {
     let Some(category) = core::category(item) else { return Vec::new() };
     let slot = core::slot_group(category);
     let mut out = Vec::new();
-    for (index, g) in custom["vastadventures"]["gems"].as_array().into_iter().flatten().enumerate() {
+    for (index, g) in socketed(custom).enumerate() {
         let Some(gem) = g["gem"].as_str().and_then(gem_named) else { continue };
         let purity = g["purity"].as_str().and_then(purity_named).unwrap_or(0).max(gem.min_purity);
         let Some(bonus) = gem.bonus_for(category, purity) else { continue };
@@ -375,10 +398,10 @@ pub fn socket(item: &str, custom: Option<&Value>, gem_item: &str, gem_custom: Op
     let gem = gem_for_item(gem_item)?;
     let stored = gem_custom.and_then(|c| c["vastadventures"]["purity"].as_str()).and_then(purity_named).unwrap_or(0);
     let purity = stored.max(gem.min_purity);
-    let mut custom = custom.cloned().unwrap_or_else(|| json!({}));
-    let a = custom.get("vastadventures")?.clone();
-    let sockets = a["sockets"].as_u64().unwrap_or(0) as usize;
-    let mut gems = a["gems"].as_array().cloned().unwrap_or_default();
+    let custom = custom?;
+    let a = Value::Object(own(custom)?.clone());
+    let sockets = socket_count(&a);
+    let mut gems: Vec<Value> = socketed(custom).cloned().collect();
     if gems.len() >= sockets {
         return None;
     }
@@ -387,7 +410,8 @@ pub fn socket(item: &str, custom: Option<&Value>, gem_item: &str, gem_custom: Op
     }
     gem.bonus_for(category, purity)?;
     gems.push(json!({"gem": gem.id, "purity": PURITIES[purity]}));
-    custom["vastadventures"]["gems"] = Value::Array(gems);
+    let mut custom = custom.clone();
+    custom.as_object_mut()?.get_mut("vastadventures")?.as_object_mut()?.insert("gems".to_owned(), Value::Array(gems));
     let lore = lore_for(&custom);
     Some(Socketed { custom, lore })
 }
@@ -454,12 +478,14 @@ pub fn reforge(item: &str, custom: &Value, material: &str, count: i32) -> Option
     let rolled = core::roll(category, rarity, core::tier(), 0.0, &mut rng);
     let patch = core::patch(item, &rolled);
     let mut new = patch.custom;
-    let sockets = a["sockets"].as_u64().unwrap_or(0).max(u64::from(rolled.sockets));
+    let sockets = socket_count(a).max(rolled.sockets as usize);
+    let gems: Vec<Value> = socketed(custom).take(sockets).cloned().collect();
+    let part = new.as_object_mut().and_then(|n| n.get_mut("vastadventures")).and_then(Value::as_object_mut)?;
     if sockets > 0 {
-        new["vastadventures"]["sockets"] = json!(sockets);
+        part.insert("sockets".to_owned(), json!(sockets));
     }
-    if let Some(gems) = a["gems"].as_array() {
-        new["vastadventures"]["gems"] = Value::Array(gems.iter().take(sockets as usize).cloned().collect());
+    if !gems.is_empty() {
+        part.insert("gems".to_owned(), Value::Array(gems));
     }
     let lore = lore_for(&new);
     Some(Reforged { name: patch.name, custom: new, lore, levels: *levels, material_cost: *cost })
@@ -502,25 +528,36 @@ pub struct Sigiled {
 }
 
 /// A sigil on an item at the anvil: Socketing adds a socket (up to two), Withdrawal takes every gem out,
-/// Unnaming takes the affix name off. None when it does nothing to this item.
+/// Unnaming takes the affix name off. None when it does nothing to this item, or when its data isn't an object
+/// (or its `vastadventures` part, when it has one).
 pub fn sigil(item: &str, custom: Option<&Value>, sigil: &str) -> Option<Sigiled> {
     core::category(item)?;
-    let mut custom = custom.cloned().filter(|c| c.get("vastadventures").is_some()).unwrap_or_else(|| json!({"vastadventures": {}}));
-    let a = custom["vastadventures"].clone();
+    let mut custom = match custom {
+        Some(Value::Object(c)) => c.clone(),
+        Some(_) => return None,
+        None => Map::new(),
+    };
+    let a = match custom.remove("vastadventures") {
+        Some(Value::Object(a)) => a,
+        None => Map::new(),
+        Some(_) => return None,
+    };
+    let mut part = a.clone();
+    let a = Value::Object(a);
     let mut clear_name = false;
     match sigil {
         SEAL_OF_SOCKETS => {
-            let sockets = a["sockets"].as_u64().unwrap_or(0);
+            let sockets = socket_count(&a) as u64;
             if sockets >= MAX_ADDED_SOCKETS {
                 return None;
             }
-            custom["vastadventures"]["sockets"] = json!(sockets + 1);
+            part.insert("sockets".to_owned(), json!(sockets + 1));
         }
         SEAL_OF_EXTRACTION => {
             if a["gems"].as_array().is_none_or(Vec::is_empty) {
                 return None;
             }
-            custom["vastadventures"].as_object_mut()?.remove("gems");
+            part.remove("gems");
         }
         SEAL_OF_ERASURE => {
             if a["affixes"].as_object().is_none_or(Map::is_empty) {
@@ -530,16 +567,15 @@ pub fn sigil(item: &str, custom: Option<&Value>, sigil: &str) -> Option<Sigiled>
         }
         _ => return None,
     }
+    custom.insert("vastadventures".to_owned(), Value::Object(part));
+    let custom = Value::Object(custom);
     let lore = lore_for(&custom);
     Some(Sigiled { custom, lore, clear_name })
 }
 
 /// The gems socketed in an item, as items, for a Sigil of Withdrawal to give back.
 pub fn socketed_gems(custom: &Value) -> Vec<MadeGem> {
-    custom["vastadventures"]["gems"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    socketed(custom)
         .filter_map(|g| {
             let gem = gem_named(g["gem"].as_str()?)?;
             Some(gem_stack(gem, g["purity"].as_str().and_then(purity_named).unwrap_or(0)))
@@ -730,6 +766,58 @@ mod tests {
         assert!(sigil("minecraft:diamond_sword", Some(&out.custom), SEAL_OF_EXTRACTION).is_none(), "nothing to take");
         assert!(sigil("minecraft:diamond_sword", Some(&gemmed), SEAL_OF_ERASURE).unwrap().clear_name);
         assert!(sigil("minecraft:stick", None, SEAL_OF_SOCKETS).is_none());
+    }
+
+    #[test]
+    fn socket_counts_are_kept_to_the_most_an_item_has() {
+        let max = core::MAX_SOCKETS as usize;
+        let huge = json!({"vastadventures": {"rarity": "vastadventures:rare", "affixes": {}, "sockets": u64::MAX}});
+        assert_eq!(lore_for(&huge).as_array().unwrap().len(), 1 + max, "the rarity, then 16 sockets");
+        let gem = json!({"gem": "vastadventures:core/ballast", "purity": "flawed"});
+        let many = json!({"vastadventures": {"rarity": "vastadventures:rare", "affixes": {}, "sockets": 1_000_000,
+                          "gems": vec![gem; 100]}});
+        assert_eq!(socketed(&many).count(), max);
+        assert_eq!(socketed_gems(&many).len(), max, "a Seal of Extraction gives back only socketed gems");
+        assert_eq!(gem_modifiers("minecraft:diamond_sword", &many).len(), max);
+        let out = reforge("minecraft:diamond_sword", &many, "vastadventures:glow_shard", 2).unwrap();
+        assert_eq!(out.custom["vastadventures"]["sockets"], json!(max));
+        assert_eq!(out.custom["vastadventures"]["gems"].as_array().unwrap().len(), max);
+        // gems past the sockets do nothing
+        let none = json!({"vastadventures": {"gems": [{"gem": "vastadventures:core/ballast", "purity": "flawed"}]}});
+        assert!(gem_modifiers("minecraft:diamond_sword", &none).is_empty());
+        assert!(sigil("minecraft:diamond_sword", Some(&huge), SEAL_OF_SOCKETS).is_none());
+    }
+
+    #[test]
+    fn data_of_any_shape_does_not_panic() {
+        let ballast = gem_stack(gem_named("vastadventures:core/ballast").unwrap(), 3);
+        let shapes = [json!("x"), json!(5), json!(-1), json!(1.5), json!(true), json!([1, 2]), json!(null), json!({})];
+        for shape in &shapes {
+            for custom in [json!({"vastadventures": shape}), shape.clone(),
+                           json!({"vastadventures": {"sockets": shape, "gems": shape, "affixes": shape, "rarity": shape}})] {
+                for seal in [SEAL_OF_SOCKETS, SEAL_OF_EXTRACTION, SEAL_OF_ERASURE] {
+                    let _ = sigil("minecraft:diamond_sword", Some(&custom), seal);
+                }
+                let _ = socket("minecraft:diamond_sword", Some(&custom), &ballast.item, Some(&custom));
+                let _ = salvage("minecraft:diamond_sword", &custom);
+                let _ = salvage(&ballast.item, &custom);
+                let _ = reforge("minecraft:diamond_sword", &custom, "vastadventures:glow_shard", 64);
+                let _ = cut_gem(&ballast.item, &custom, GEM_DUST, 64);
+                let _ = lore_for(&custom);
+                let _ = socketed_gems(&custom);
+                let _ = core::own_modifiers("minecraft:diamond_sword", &custom);
+                let _ = crate::effects::effects("minecraft:diamond_sword", &custom);
+            }
+        }
+        // A seal on data that isn't this mod's object leaves it be; other mods' data stays with a new socket.
+        assert!(sigil("minecraft:diamond_sword", Some(&json!({"vastadventures": "x"})), SEAL_OF_SOCKETS).is_none());
+        assert!(sigil("minecraft:diamond_sword", Some(&json!([1])), SEAL_OF_SOCKETS).is_none());
+        let other = sigil("minecraft:diamond_sword", Some(&json!({"othermod": 1})), SEAL_OF_SOCKETS).unwrap();
+        assert_eq!(other.custom, json!({"othermod": 1, "vastadventures": {"sockets": 1}}));
+        // An affix level out of its range counts as the range's end.
+        let wild = json!({"vastadventures": {"rarity": "vastadventures:rare", "affixes": {"vastadventures:melee/attribute/violent": 1e30}}});
+        let top = json!({"vastadventures": {"rarity": "vastadventures:rare", "affixes": {"vastadventures:melee/attribute/violent": 1.0}}});
+        assert_eq!(core::own_modifiers("minecraft:diamond_sword", &wild), core::own_modifiers("minecraft:diamond_sword", &top));
     }
 
     #[test]

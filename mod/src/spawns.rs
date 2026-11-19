@@ -1,7 +1,8 @@
 //! Bosses, elites and the world tier: monsters the world spawns naturally are marked as they are finalized, and once
 //! they join, now and then a boss takes one's place (an invader, at most one every three minutes) or the mob
 //! becomes an elite. A boss dungeon's spawner makes a marked mob: the spawner goes and a boss stands there. The
-//! world tier is saved with the world and set with `/vastadventures tier`.
+//! world tier is saved with the world; anyone may see it with `/vastadventures tier`, and operators set it with
+//! `/vastadventures tier <tier>`.
 
 use crate::bosses::{self, Plan};
 use crate::gems::is_monster;
@@ -10,7 +11,7 @@ use crate::nbt::{self, key};
 use mod_api::command::{CommandArgumentValue, CommandInvocation, CommandSource};
 use mod_api::{
     ActiveEffect, BlockUpdateFlags, Command, Compound, ConfigPath, EntityRef, EquipmentSlot, FinalizeSpawnEvent, Flow,
-    Host, ServerHost, SpawnReason, Tag, Text,
+    Host, PermissionLevel, ServerHost, SpawnReason, Tag, Text,
 };
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -225,11 +226,21 @@ pub fn load_tier(host: &mut dyn ServerHost) {
     loot::set_tier(tier);
 }
 
-/// `/vastadventures tier [<tier>]` shows or sets the world tier; `/vastadventures boss` summons a boss (operators).
+/// The permission level that changes the world (the tier for everyone, a boss): game masters, as `/difficulty`.
+const OPERATOR: PermissionLevel = PermissionLevel::Gamemasters;
+
+/// `/vastadventures tier` shows the world tier (anyone); `/vastadventures tier <tier>` sets it and
+/// `/vastadventures boss` summons a boss (operators).
 pub fn register_commands(commands: &mut Vec<Command>) {
     commands.push(Command::new("vastadventures tier"));
-    commands.push(Command::new("vastadventures tier <tier:word>"));
-    commands.push(Command::op("vastadventures boss", 2));
+    commands.push(Command::op("vastadventures tier <tier:word>", OPERATOR.level()));
+    commands.push(Command::op("vastadventures boss", OPERATOR.level()));
+}
+
+/// Whether `source` may change the world: the dispatcher checks the level each usage registered with, and the
+/// handler checks again.
+fn operator(source: &CommandSource) -> bool {
+    source.permission() >= OPERATOR
 }
 
 fn tell(host: &mut dyn ServerHost, line: Text, color: &str) {
@@ -241,6 +252,10 @@ fn tell(host: &mut dyn ServerHost, line: Text, color: &str) {
 pub fn run_command(host: &mut dyn ServerHost, source: &CommandSource, command: &CommandInvocation) -> Flow {
     match command.literals.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["vastadventures", "boss"] => {
+            if !operator(source) {
+                tell(host, Text::translate("commands.vastadventures.no_permission", Vec::new()), "red");
+                return Flow::Cancel;
+            }
             let CommandSource::Player { player, .. } = source else { return Flow::Cancel };
             let (Some(pos), Some(dimension)) = (player.entity().position(&*host), player.dimension(&*host)) else {
                 return Flow::Cancel;
@@ -261,6 +276,9 @@ pub fn run_command(host: &mut dyn ServerHost, source: &CommandSource, command: &
                 None => {
                     let name = Text::translate(format!("tier.vastadventures.{}", TIERS[loot::tier()]), Vec::new());
                     tell(host, Text::translate("commands.vastadventures.tier", vec![name, list]), "gold");
+                }
+                Some(_) if !operator(source) => {
+                    tell(host, Text::translate("commands.vastadventures.no_permission", Vec::new()), "red");
                 }
                 Some(name) => match loot::tier_named(&name) {
                     Some(tier) => {

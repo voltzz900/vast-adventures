@@ -176,12 +176,12 @@ pub fn effects(item: &str, custom: &Value) -> Vec<Effect> {
     if let Some(rarity) = a["rarity"].as_str() {
         for (id, level) in a["affixes"].as_object().into_iter().flatten() {
             let Some(affix) = core::affix_named(id) else { continue };
-            let level = level.as_f64().unwrap_or(0.0) as f32;
+            let level = core::affix_level(level);
             let value = affix.raw["values"].get(rarity).cloned().unwrap_or(Value::Null);
             out.extend(effect_of(&affix.typ, &affix.raw, &value, level, id));
         }
     }
-    for g in a["gems"].as_array().into_iter().flatten() {
+    for g in gems::socketed(custom) {
         let Some(gem) = g["gem"].as_str().and_then(gems::gem_named) else { continue };
         let purity = g["purity"].as_str().and_then(gems::purity_named).unwrap_or(0);
         for (typ, raw) in gem.raw_bonuses_for(category) {
@@ -236,7 +236,7 @@ pub fn enchantment_bonus(effects: &[Effect], id: &str, base: u32) -> u32 {
             },
             _ => None,
         })
-        .sum()
+        .fold(0, u32::saturating_add)
 }
 
 /// The blocks a radial miner breaks around `pos`, besides it: `width` across and `height` up the face the

@@ -13,6 +13,14 @@ use std::sync::{OnceLock, RwLock};
 
 /// Apotheosis' world tiers, lowest first.
 pub const TIERS: [&str; 5] = ["calm", "wilds", "rising", "peril", "apex"];
+/// The most sockets an item has (`SocketHelper.setSockets`): what a roll gives, and the most read from a stack's
+/// `custom_data`, which a player in Creative can set to anything.
+pub const MAX_SOCKETS: u32 = 16;
+
+/// An affix's level as a stack's `custom_data` stores it: a roll from 0 to 1 (anything else is kept to that).
+pub fn affix_level(value: &Value) -> f32 {
+    value.as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32
+}
 static TIER: AtomicU8 = AtomicU8::new(0);
 
 /// The world's tier, an index into `TIERS`.
@@ -238,10 +246,10 @@ pub fn record_defaults(item: &str, components: &Map<String, Value>) {
             .and_then(Value::as_str)
             .map(str::to_owned),
     };
-    if found.modifiers.is_some() || found.slot.is_some() {
-        if let Ok(mut map) = defaults().write() {
-            map.insert(item.to_owned(), found);
-        }
+    if (found.modifiers.is_some() || found.slot.is_some())
+        && let Ok(mut map) = defaults().write()
+    {
+        map.insert(item.to_owned(), found);
     }
 }
 
@@ -394,11 +402,11 @@ impl Roll<'_> {
                     self.rule(d, r, rng);
                 }
             }
-            // `SocketHelper.setSockets` keeps the larger count, at most 16.
+            // `SocketHelper.setSockets` keeps the larger count, at most `MAX_SOCKETS`.
             "vastadventures:socket" => {
                 let min = rule["min"].as_u64().unwrap_or(0);
                 let max = rule["max"].as_u64().unwrap_or(1).max(min);
-                let n = (min + rng.below(max - min + 1)).min(16) as u32;
+                let n = (min + rng.below(max - min + 1)).min(u64::from(MAX_SOCKETS)) as u32;
                 self.sockets = self.sockets.max(n);
             }
             // Durability and component rules: later slices.
@@ -586,7 +594,7 @@ pub fn affix_modifiers(item: &str, custom: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     for (id, level) in a["affixes"].as_object().into_iter().flatten() {
         let Some(affix) = d.affixes.iter().find(|x| &x.id == id && x.typ == "vastadventures:attribute") else { continue };
-        let level = level.as_f64().unwrap_or(0.0) as f32;
+        let level = affix_level(level);
         let Some(amount) = affix.values.get(rarity).and_then(|v| step_value(v, level)) else { continue };
         let path = affix.id.split_once(':').map_or(affix.id.as_str(), |(_, p)| p);
         out.push(json!({
@@ -708,11 +716,11 @@ pub fn loot_condition(kind: &str, has_player: bool, entity: Option<&str>) -> Opt
 /// hooks run and what the engines tell them.
 pub fn note_context(kind: &str, player: bool, entity: Option<&str>) {
     static SEEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-    if let Ok(mut seen) = SEEN.lock() {
-        if !seen.iter().any(|k| k == kind) {
-            seen.push(kind.to_owned());
-            eprintln!("Vast Adventures: first {kind} roll (player: {player}, entity: {})", entity.unwrap_or("none"));
-        }
+    if let Ok(mut seen) = SEEN.lock()
+        && !seen.iter().any(|k| k == kind)
+    {
+        seen.push(kind.to_owned());
+        eprintln!("Vast Adventures: first {kind} roll (player: {player}, entity: {})", entity.unwrap_or("none"));
     }
 }
 

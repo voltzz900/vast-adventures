@@ -144,6 +144,7 @@
   "attribute.name.vastadventures.life_steal": "Life Steal",
   "attribute.name.vastadventures.projectile_damage": "Projectile Damage",
   "commands.vastadventures.no_boss": "No boss could be summoned here.",
+  "commands.vastadventures.no_permission": "Only an operator can do that.",
   "commands.vastadventures.no_tier": "No tier %s: %s",
   "commands.vastadventures.tier": "World tier: %s (tiers: %s)",
   "commands.vastadventures.tier_set": "World tier is now %s: new loot rolls at it.",
